@@ -73,6 +73,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           ./gradlew --no-daemon assembleRelease bundleRelease \
             -PversionCode=${{ github.run_number }} \
@@ -82,11 +83,13 @@ jobs:
             -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
           APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
-          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk | head -3
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/apksigner.txt"
+          head -3 "$RUNNER_TEMP/apksigner.txt"
       - name: Build debug (no keystore secrets yet)
         if: env.KEYSTORE_B64 == ''
         working-directory: android
         run: |
+          set -euo pipefail
           ./gradlew --no-daemon assembleDebug \
             -PversionCode=${{ github.run_number }} \
             -PversionName=${{ needs.web.outputs.version }}

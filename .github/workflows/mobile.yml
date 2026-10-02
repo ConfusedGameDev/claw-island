@@ -106,7 +106,8 @@ jobs:
           status: completed
       - name: Google Play upload skipped
         if: env.KEYSTORE_B64 == '' || env.PLAY_SA_JSON == ''
-        run: echo "::notice::No PLAY_SERVICE_ACCOUNT_JSON secret (or no keystore): the .aab is an artifact only. Run the mobile-port play-secrets script to publish to the internal testing track."
+        run: |
+          echo "::notice::No PLAY_SERVICE_ACCOUNT_JSON secret (or no keystore) - the .aab is an artifact only. Run the mobile-port play-secrets script to publish to the internal testing track."
       - uses: actions/upload-artifact@v7
         with:
           name: android

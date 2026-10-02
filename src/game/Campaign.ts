@@ -7,8 +7,9 @@ export interface Campaign {
   id: CampaignId;
   title: string;
   subtitle: string;
-  /** Short label for the title-screen picker. */
+  /** Short label for the title-screen picker, and the name of its icon (see ui/Icons). */
   tab: string;
+  tabIcon: 'pumpkin' | 'island';
   levels: LevelDef[];
   /** Crane, rails and claw: toy plastic or bones. */
   look: 'plastic' | 'bone';
@@ -25,8 +26,9 @@ export const CAMPAIGNS: Record<CampaignId, Campaign> = {
   halloween: {
     id: 'halloween',
     title: 'Claw Island',
-    subtitle: '🎃 Spooky Night: build a monster, one claw at a time',
-    tab: '🎃 Spooky Night',
+    subtitle: 'Spooky Night: build a monster, one claw at a time',
+    tab: 'Spooky Night',
+    tabIcon: 'pumpkin',
     levels: SPOOKY_LEVELS,
     look: 'bone',
     bodyClass: 'halloween',
@@ -38,7 +40,8 @@ export const CAMPAIGNS: Record<CampaignId, Campaign> = {
     id: 'classic',
     title: 'Claw Island',
     subtitle: 'a tiny UFO-catcher adventure',
-    tab: '🏝 Classic',
+    tab: 'Classic',
+    tabIcon: 'island',
     levels: CLASSIC_LEVELS,
     look: 'plastic',
     bodyClass: 'classic',

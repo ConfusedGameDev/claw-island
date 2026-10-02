@@ -14,17 +14,18 @@ import { Ghost } from '../entities/Ghost';
 import { type Critter, type Obstacle, RectRegion, EllipseRegion } from '../entities/Critter';
 import { tickWater } from '../scene/Water';
 import {
-  COLLECTIBLE_KINDS, PICKUP_KINDS, Collectible, EMOJI_FALLBACK, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
+  COLLECTIBLE_KINDS, PICKUP_KINDS, Collectible, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
 } from '../entities/Collectible';
 import { Hud, type PauseMonster, type PieceReward } from '../ui/Hud';
 import { Input } from './Input';
 import { Sfx } from '../audio/Sfx';
+import { Music, TITLE_ARRANGEMENT } from '../audio/Music';
 import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
 import { LAYOUT } from './Layout';
 import { type LevelDef } from './Levels';
 import { type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
-import { MONSTERS, MonsterPortrait, SLOTS, monsterName, pieceLabel, rollPiece, type MonsterBuild } from './Monster';
-import { composeCard, downloadCard, shareCard } from '../ui/Share';
+import { MONSTERS, MonsterPortrait, SLOTS, monsterName, pieceLabel, rollPiece, swatchCss, type MonsterBuild, type Slot } from './Monster';
+import { composeCard, prepareCard, saveCard, shareCard, type PartChip } from '../ui/Share';
 import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle, windValue } from '../util/math';
 
 export type Phase = 'INTRO' | 'PHASE_WEIGHT' | 'HOLE_OPENING' | 'PHASE_COLLECT' | 'RESULTS' | 'TRAVEL' | 'FINAL';
@@ -65,6 +66,8 @@ export class Game {
   readonly hud: Hud;
   readonly input: Input;
   readonly sfx = new Sfx();
+  /** Spooky Night's soundtrack (the classic campaign has none). */
+  readonly music: Music | null;
   readonly levels: LevelRuntime[] = [];
   readonly bridges: RailBridge[] = [];
 
@@ -132,7 +135,8 @@ export class Game {
     this.input = new Input();
     this.hud = new Hud(this.input);
     this.hud.onPause = () => this.pause();
-    this.input.onFirstGesture = () => this.sfx.unlock();
+    this.music = campaign.rewardsPieces ? new Music(this.sfx) : null;
+    this.input.onFirstGesture = () => { this.sfx.unlock(); this.music?.kick(); };
     this.icons = renderIcons([
       ...PICKUP_KINDS.map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
       { key: 'diamondcrab', build: () => Crab.buildIconMesh('diamond', this.levelDefs.find((l) => l.special === 'diamondcrab')?.critterSkin) },
@@ -173,7 +177,7 @@ export class Game {
       onToolPickup: (c) => {
         const col = this.cur.collectibles.find((x) => x === c);
         col?.dispose();
-        this.hud.toast('Magnet attached! 🧲', 'good');
+        this.hud.toast('Magnet attached!', 'good');
         this.sfx.deliver();
       },
     };
@@ -205,6 +209,8 @@ export class Game {
   // ------------------------------------------------------------- lifecycle
   /** New run from level 1 (shows the intro, with a resume option if any). */
   reset(seed?: number): void {
+    this.music?.play(TITLE_ARRANGEMENT);
+    this.music?.duck(0);
     this.prepare(0, seed);
     this.setPhase('INTRO');
     const saved = this.loadProgress();
@@ -365,7 +371,7 @@ export class Game {
     this.targets = targets;
     this.hud.setTargets(targets.map((k) => ({
       kind: k, name: this.targetName(k),
-      icon: this.icons[k] ?? EMOJI_FALLBACK[k] ?? '❔',
+      icon: this.icons[k] ?? '',
       isImage: Boolean(this.icons[k]),
     })));
   }
@@ -379,6 +385,8 @@ export class Game {
 
   /** Begin play on the island `prepare()` just set up. */
   private startLevel(): void {
+    this.music?.playIsland(this.currentLevel);
+    this.music?.duck(0);
     this.paused = false;
     this.hud.hideOverlay();
     this.input.consumeDrop();
@@ -405,6 +413,7 @@ export class Game {
     if (!this.canPause()) return;
     this.paused = true;
     this.input.consumeDrop();
+    this.music?.duck(2);
     let monster: PauseMonster | undefined;
     if (this.campaign.rewardsPieces) {
       this.portrait ??= new MonsterPortrait();
@@ -414,7 +423,7 @@ export class Game {
         image: img?.toDataURL('image/png') ?? null,
         filled: owned.length,
         total: SLOTS.length,
-        parts: owned.map((s) => `${MONSTERS[this.pieces[s]!].emoji} ${pieceLabel(s, this.pieces[s]!)}`),
+        parts: this.partChips(owned),
       };
     }
     const unlocked = this.maxUnlocked();
@@ -425,12 +434,14 @@ export class Game {
       onResume: () => this.resume(),
       onRestart: () => this.jumpTo(this.currentLevel),
       onJump: (i) => this.jumpTo(i),
+      music: this.music ? { on: this.music.enabled, toggle: () => this.music!.toggle() } : undefined,
     });
   }
 
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
+    this.music?.duck(0);
     this.hud.hideOverlay();
     this.input.consumeDrop();
     this.input.consumeAny();
@@ -469,32 +480,39 @@ export class Game {
     const img = this.portrait.render(this.pieces, 360);
     return {
       label: pieceLabel(slot, id),
-      emoji: MONSTERS[id].emoji,
+      color: swatchCss(id),
       image: img?.toDataURL('image/png') ?? null,
       filled: SLOTS.filter((s) => this.pieces[s]).length,
       total: SLOTS.length,
     };
   }
 
+  private partChips(slots: readonly Slot[]): PartChip[] {
+    return slots.filter((s) => this.pieces[s]).map((s) => ({ label: pieceLabel(s, this.pieces[s]!), color: swatchCss(this.pieces[s]!) }));
+  }
+
   private showMonsterFinal(total: number, stars: number, best: number): void {
     for (const slot of SLOTS) this.pieces[slot] ??= rollPiece(this.rng);
     this.savePieces();
     this.portrait ??= new MonsterPortrait();
-    const big = this.portrait.render(this.pieces, 900, { placeholders: false });
-    const parts = SLOTS.map((slot) => `${MONSTERS[this.pieces[slot]!].emoji} ${pieceLabel(slot, this.pieces[slot]!)}`);
+    const defaultName = monsterName(this.pieces);
+    // No name on the preview's base: the player can still rename the monster (the shared card carries the final name).
+    const preview = this.portrait.render(this.pieces, 600, { placeholders: false });
+    const parts = this.partChips(SLOTS);
     const url = gameUrl();
-    const card = (name: string) => composeCard(big, { name, parts, total, stars, url });
     this.hud.showMonsterFinal(this.results, total, stars, best, {
-      image: big?.toDataURL('image/png') ?? null,
-      defaultName: monsterName(this.pieces),
+      image: preview?.toDataURL('image/png') ?? null,
+      defaultName,
       parts,
-      onShare: async (name) => {
-        const outcome = await shareCard(await card(name), name, url);
-        return outcome === 'shared' ? 'Shared! 🎃' : outcome === 'downloaded' ? 'Picture saved, link copied! 🎃' : 'Maybe later 👻';
+      prepare: async (name) => {
+        const figure = this.portrait!.render(this.pieces, 900, { placeholders: false, name });
+        return prepareCard(await composeCard(figure, { name, parts, total, stars, url }), name);
       },
-      onDownload: async (name) => downloadCard(await card(name), name),
+      onShare: (card) => shareCard(card, url),
+      onSave: (card) => saveCard(card),
     }, () => this.reset(), () => this.sfx.star());
   }
+
 
   private loadProgress(): number {
     try {
@@ -535,7 +553,10 @@ export class Game {
         const b = computeScore(this.stats, this.targets.length);
         this.results.push({ level: this.cur.def, breakdown: b, stats: this.stats });
         const isLast = this.currentLevel >= this.levelDefs.length - 1;
-        this.sfx.fanfare();
+        if (this.music) {
+          this.music.cueClear();
+          this.music.duck(1);
+        } else this.sfx.fanfare();
         this.hud.showLevelResults(this.cur.def, b, this.stats, isLast, () => this.continueFromResults(), () => this.sfx.star(), this.awardPiece());
         break;
       }
@@ -558,8 +579,11 @@ export class Game {
     let best = 0;
     try { best = Number(localStorage.getItem(this.campaign.bestKey) ?? 0); } catch { /* ignore */ }
     try { localStorage.setItem(this.campaign.bestKey, String(Math.max(best, total))); } catch { /* ignore */ }
-    this.sfx.fanfare();
+    if (!this.music) this.sfx.fanfare();
     if (this.campaign.rewardsPieces) {
+      this.music?.cueAlive();
+      this.music?.play(TITLE_ARRANGEMENT);
+      this.music?.duck(0);
       // The run is over: the next one starts from the first island with a new monster.
       try { localStorage.setItem(this.campaign.progressKey, '0'); } catch { /* ignore */ }
       this.showMonsterFinal(total, stars, best);
@@ -570,6 +594,7 @@ export class Game {
 
   // ---------------------------------------------------------------- travel
   private startTravel(to: number): void {
+    this.music?.duck(0);
     this.hud.hideOverlay();
     this.hud.showTargets(false);
     this.travel = { from: this.currentLevel, to, t: 0, humT: 0, clanked: false };
@@ -607,6 +632,7 @@ export class Game {
   }
 
   private arrive(to: number): void {
+    this.music?.playIsland(to);
     this.currentLevel = to;
     const def = this.cur.def;
     this.claw.setOrigin(def.origin);

@@ -6,12 +6,15 @@ interface Cloud { group: THREE.Group; speed: number; baseY: number; phase: numbe
 
 /** Lights and sky decoration shared by every island. */
 export class Environment {
+  /** Straight overhead and the only shadow caster: shadows land exactly below things, so the claw's shadow marks where it will drop. */
   readonly sun: THREE.DirectionalLight;
+  /** Warm angled light for form and warmth; casts no shadow. */
+  readonly key: THREE.DirectionalLight;
   private clouds: Cloud[] = [];
   private focusPoint = new THREE.Vector3();
 
   constructor(private scene: THREE.Scene) {
-    this.sun = new THREE.DirectionalLight(0xfff1dc, 2.3);
+    this.sun = new THREE.DirectionalLight(0xfff6e8, 2.1);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const cam = this.sun.shadow.camera;
@@ -19,24 +22,31 @@ export class Environment {
     cam.near = 1; cam.far = 30;
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.03;
-    this.sun.shadow.radius = 4;
+    this.sun.shadow.radius = 2;
     scene.add(this.sun, this.sun.target);
+    this.key = new THREE.DirectionalLight(0xfff1dc, 0.9);
+    this.key.castShadow = false;
+    scene.add(this.key, this.key.target);
     this.focus({ x: 0, z: 0 });
 
-    scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6b8f3c, 0.9));
-    const fill = new THREE.DirectionalLight(0xbfd0ff, 0.5);
+    scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6b8f3c, 0.6));
+    const fill = new THREE.DirectionalLight(0xbfd0ff, 0.35);
     fill.position.set(-4, 6, -3);
     scene.add(fill);
 
     this.buildClouds();
   }
 
-  /** Point the shadow-casting sun at the active island. */
+  /** Center the lights (and the shadow map) on the active island. */
   focus(origin: { x: number; z: number }): void {
     this.focusPoint.set(origin.x, 0, origin.z);
-    this.sun.position.set(origin.x + 5, 10, origin.z + 6);
+    // A hair off vertical keeps the look-at matrix well defined.
+    this.sun.position.set(origin.x, 14, origin.z + 0.05);
     this.sun.target.position.copy(this.focusPoint);
     this.sun.target.updateMatrixWorld();
+    this.key.position.set(origin.x + 5, 10, origin.z + 6);
+    this.key.target.position.copy(this.focusPoint);
+    this.key.target.updateMatrixWorld();
   }
 
   update(dt: number, t: number): void {

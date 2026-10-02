@@ -72,7 +72,7 @@ export class Game {
   private particles: Particle[] = [];
   private particleGeo = new THREE.SphereGeometry(0.05, 6, 5);
   private camBase = new THREE.Vector3(0, 10.2, 7.6);
-  private camLook = new THREE.Vector3(0, 0, -0.2);
+  private camLook = new THREE.Vector3(0, 0.4, -0.6);
   /** Camera anchor: the active island's origin (tweened while travelling). */
   private viewOrigin = new THREE.Vector3();
   private camX = 0;
@@ -94,7 +94,7 @@ export class Game {
     this.scene.background = new THREE.Color(PAL.navy);
     setupEnvironment(this.renderer, this.scene);
 
-    this.camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.5, 80);
+    this.camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.5, 80);
     this.applyCameraLayout();
 
     this.phys = new PhysicsWorld();
@@ -591,7 +591,7 @@ export class Game {
 
   private applyCameraLayout(): void {
     const portrait = window.innerWidth < window.innerHeight;
-    this.camera.fov = portrait ? 56 : 36;
+    this.camera.fov = portrait ? 58 : 40;
     this.camBase.set(0, portrait ? 12.5 : 10.2, portrait ? 9.0 : 7.6);
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();

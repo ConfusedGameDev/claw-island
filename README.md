@@ -62,6 +62,29 @@ Stack: Vite, TypeScript, [three.js](https://threejs.org) for rendering and
 [Rapier](https://rapier.rs) (`@dimforge/rapier3d-compat`) for physics. All
 geometry is procedural; there are no model or texture files.
 
+## Mobile apps (iOS and Android)
+
+The game ships as native apps through [Capacitor](https://capacitorjs.com):
+`android/` and `ios/` are ordinary source folders on `main` and only ever
+receive the built web assets. The **Mobile builds** GitHub Actions workflow
+(`.github/workflows/mobile.yml`) runs on every push to `main`:
+
+- builds the web app,
+- syncs it into both native projects,
+- builds a signed Android release `.apk` + `.aab` (keystore in repo secrets),
+- archives and exports a signed iOS `.ipa` and uploads it to TestFlight
+  (certificate, profile and App Store Connect key in repo secrets),
+- publishes a GitHub Release with all files when a `v*` tag is pushed.
+
+Artifacts of every run are downloadable from the Actions tab
+(`gh run download <run-id>`). Without the signing secrets the workflow still
+succeeds with a debug `.apk` and an unsigned `.ipa`.
+
+Locally: `npm run build && npx cap sync`, then `npx cap open ios` / `android`.
+Replace `resources/logo.png` and rerun
+`npx capacitor-assets generate --ios --android --iconBackgroundColor '#1b2140' --iconBackgroundColorDark '#1b2140' --splashBackgroundColor '#1b2140' --splashBackgroundColorDark '#1b2140'`
+to change the icon.
+
 ## Project layout
 
 ```

@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { PAL, plastic } from '../scene/Materials';
 import { PhysicsWorld, OBJECT_GROUPS, HELD_GROUPS } from '../physics/PhysicsWorld';
 import type { Grabbable, GrabDef } from './Grabbable';
-import { EXTRA_KINDS, EXTRA_EMOJI } from './KindsExtra';
-import { SPOOKY_KINDS, SPOOKY_EMOJI } from './KindsHalloween';
+import { EXTRA_KINDS } from './KindsExtra';
+import { SPOOKY_KINDS } from './KindsHalloween';
 
 /** Any key of KINDS (base catalog plus the later islands' pickups in KindsExtra.ts). */
 export type Kind = string;
@@ -373,16 +373,10 @@ export function renderIcons(entries: IconEntry[]): Record<string, string> {
       scene.remove(mesh);
     }
   } catch (err) {
-    console.warn('Icon rendering failed, falling back to emoji', err);
+    console.warn('Icon rendering failed, target cards fall back to a plain token', err);
   } finally {
     renderer?.dispose();
     renderer?.forceContextLoss();
   }
   return out;
 }
-
-export const EMOJI_FALLBACK: Record<string, string> = {
-  rupee: '💎', heart: '❤️', shell: '🐚', acorn: '🌰', mushroom: '🍄', star: '⭐', rock: '🪨', bomb: '💣', weight: '🏋️', diamondcrab: '🦀',
-  ...EXTRA_EMOJI,
-  ...SPOOKY_EMOJI,
-};

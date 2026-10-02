@@ -146,7 +146,3 @@ export const SPOOKY_KINDS: Record<string, KindDef> = {
     collider: () => RAPIER.ColliderDesc.cylinder(0.14, 0.15),
   },
 };
-
-export const SPOOKY_EMOJI: Record<string, string> = {
-  candycorn: '🍬', tombstone: '🪦', eyeball: '👁️', coffin: '⚰️', potion: '🧪', cauldron: '🫕',
-};

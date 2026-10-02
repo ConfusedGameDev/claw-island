@@ -22,6 +22,11 @@ export class Sfx {
     }
   }
 
+  /** The shared audio context and master bus, once unlocked (music plays through them too). */
+  context(): { ctx: AudioContext; master: GainNode } | null {
+    return this.ctx && this.master ? { ctx: this.ctx, master: this.master } : null;
+  }
+
   tone(freq: number, dur: number, type: Wave = 'square', gain = 0.15, slideTo?: number, delay = 0): void {
     if (!this.ctx || !this.master || this.muted) return;
     const t0 = this.ctx.currentTime + delay;

@@ -5,11 +5,18 @@ import { PERFECT_ATTEMPTS } from '../game/Scoring';
 import { formatTime } from '../util/math';
 import type { Campaign, CampaignId } from '../game/Campaign';
 import { CAMPAIGNS } from '../game/Campaign';
+import { ICONS, withIcon, type IconName } from './Icons';
+import type { PartChip, PreparedCard, ShareOutcome } from './Share';
+
+/** Colour dot + label chips for monster pieces. */
+const chips = (parts: PartChip[]): string =>
+  parts.map((p) => `<span><i class="dot" style="background:${p.color}"></i>${p.label}</span>`).join('');
 
 /** A body piece just won (results screen). */
 export interface PieceReward {
   label: string;
-  emoji: string;
+  /** The piece's monster colour. */
+  color: string;
   /** Monster so far, as an image URL (null without WebGL). */
   image: string | null;
   filled: number;
@@ -21,7 +28,7 @@ export interface PauseMonster {
   image: string | null;
   filled: number;
   total: number;
-  parts: string[];
+  parts: PartChip[];
 }
 
 export interface PauseMenu {
@@ -31,15 +38,19 @@ export interface PauseMenu {
   onResume: () => void;
   onRestart: () => void;
   onJump: (index: number) => void;
+  /** Music toggle (Spooky Night only). */
+  music?: { on: boolean; toggle: () => boolean };
 }
 
 /** The finished monster (final screen). */
 export interface MonsterFinal {
   image: string | null;
   defaultName: string;
-  parts: string[];
-  onShare: (name: string) => Promise<string>;
-  onDownload: (name: string) => Promise<void>;
+  parts: PartChip[];
+  /** Compose the share card for a name (renders the figure with the name on its base). */
+  prepare: (name: string) => Promise<PreparedCard>;
+  onShare: (card: PreparedCard) => Promise<ShareOutcome>;
+  onSave: (card: PreparedCard) => Promise<ShareOutcome>;
 }
 
 export interface TargetCard { kind: string; name: string; icon: string; isImage: boolean }
@@ -66,16 +77,16 @@ export class Hud {
   private cards = new Map<string, HTMLElement>();
   private lastTimer = '';
   private pauseBtn: HTMLButtonElement;
-  /** Set by the game: the ⏸ button was pressed. */
+  /** Set by the game: the pause button was pressed. */
   onPause: (() => void) | null = null;
 
   constructor(input: Input) {
     const top = el('div', 'hud-top');
     const stats = el('div', 'hud-stats');
-    this.timerEl = el('div', 'pill', '<span class="ico">⏱</span><span class="val">0:00</span>');
-    this.attemptsEl = el('div', 'pill', '<span class="ico">🕹</span><span class="val">0</span>');
+    this.timerEl = el('div', 'pill', `<span class="ico">${ICONS.timer}</span><span class="val">0:00</span>`);
+    this.attemptsEl = el('div', 'pill', `<span class="ico">${ICONS.claw}</span><span class="val">0</span>`);
     this.levelEl = el('div', 'pill level', '<span class="val">Lv 1 · Meadow</span>');
-    this.pauseBtn = el('button', 'pill pause-btn hidden', '⏸');
+    this.pauseBtn = el('button', 'pill pause-btn hidden', ICONS.pause);
     this.pauseBtn.setAttribute('aria-label', 'Pause');
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); this.onPause?.(); });
     stats.append(this.levelEl, this.timerEl, this.attemptsEl, this.pauseBtn);
@@ -154,7 +165,7 @@ export class Hud {
     this.cards.clear();
     for (const c of cards) {
       const card = el('div', 'card');
-      const icon = c.isImage ? `<img src="${c.icon}" alt="${c.name}" />` : `<span class="emoji">${c.icon}</span>`;
+      const icon = c.isImage ? `<img src="${c.icon}" alt="${c.name}" />` : `<span class="card-fallback">${ICONS.token}</span>`;
       card.innerHTML = `<div class="card-icon">${icon}<div class="check">✓</div></div><div class="card-name">${c.name}</div>`;
       this.targetsEl.append(card);
       this.cards.set(c.kind, card);
@@ -193,7 +204,7 @@ export class Hud {
     if (onSwitch) {
       const tabs = el('div', 'campaign-tabs');
       for (const c of Object.values(CAMPAIGNS)) {
-        const t = el('button', `campaign-tab ${c.id === campaign.id ? 'on' : ''}`, c.tab);
+        const t = el('button', `campaign-tab ${c.id === campaign.id ? 'on' : ''}`, withIcon(c.tabIcon as IconName, c.tab));
         t.addEventListener('click', (e) => { e.stopPropagation(); if (c.id !== campaign.id) onSwitch(c.id); });
         tabs.append(t);
       }
@@ -207,7 +218,7 @@ export class Hud {
         <li><b>1.</b> Every island hides <b>treasures</b>. Drop them into the hatch.</li>
         <li><b>2.</b> The hatch is shut tight&hellip; find a way to open it.</li>
         ${spooky
-    ? '<li><b>3.</b> Clear an island to win a <b>body piece</b> from a random monster. Ten pieces make your own <b>Frankenstein</b>. 🧟</li>'
+    ? '<li><b>3.</b> Clear an island to win a <b>body piece</b> from a random monster. Ten pieces make your own <b>Frankenstein</b>.</li>'
     : '<li><b>3.</b> Grab things dead centre. A sloppy grip wobbles, then slips.</li>'}
       </ol>
       <div class="keys">
@@ -221,7 +232,7 @@ export class Hud {
     btn.addEventListener('click', onStart);
     btns.append(btn);
     if (resume) {
-      const pieces = spooky && resume.pieces ? ` · ${resume.pieces}🦴` : '';
+      const pieces = spooky && resume.pieces ? ` · ${resume.pieces} ${ICONS.bone}` : '';
       const r = el('button', 'big-btn alt', `Continue · Lv ${resume.level.index + 1}${pieces}`);
       r.addEventListener('click', resume.onResume);
       btns.append(r);
@@ -242,30 +253,37 @@ export class Hud {
     this.overlay.innerHTML = '';
     const card = el('div', 'panel pause');
     card.addEventListener('pointerdown', (e) => e.stopPropagation());
-    card.innerHTML = `<div class="title">Paused${m.monster ? ' 🦇' : ''}</div>`;
-    const resume = el('button', 'big-btn', 'Resume ▶');
+    card.innerHTML = `<div class="title">${m.monster ? `<span class="title-icon">${ICONS.bat}</span>` : ''}Paused</div>`;
+    const resume = el('button', 'big-btn', withIcon('play', 'Resume'));
     resume.addEventListener('click', m.onResume);
     const top = el('div', 'btns');
     top.append(resume);
     card.append(top);
     if (m.monster) {
       const box = el('div', 'piece pause-monster');
-      const pic = m.monster.image ? `<img class="piece-monster" src="${m.monster.image}" alt="Your monster so far" />` : '<div class="piece-emoji">🧟</div>';
+      const pic = m.monster.image ? `<img class="piece-monster" src="${m.monster.image}" alt="Your monster so far" />` : `<div class="piece-fallback">${ICONS.monster}</div>`;
       const dots = Array.from({ length: m.monster.total }, (_, i) => `<i class="${i < m.monster!.filled ? 'on' : ''}"></i>`).join('');
-      const parts = m.monster.parts.length ? m.monster.parts.map((p) => `<span>${p}</span>`).join('') : '<span>No pieces yet: clear an island!</span>';
+      const parts = m.monster.parts.length ? chips(m.monster.parts) : '<span>No pieces yet: clear an island!</span>';
       box.innerHTML = `${pic}<div class="piece-text"><div class="piece-kicker">Your monster</div><div class="piece-dots">${dots}</div><div class="piece-count">${m.monster.filled} / ${m.monster.total} pieces</div><div class="parts">${parts}</div></div>`;
       card.append(box);
     }
-    const restart = el('button', 'big-btn alt small', '↻ Restart island');
+    const restart = el('button', 'big-btn alt small', withIcon('restart', 'Restart island'));
     restart.addEventListener('click', m.onRestart);
     const mid = el('div', 'btns');
     mid.append(restart);
+    if (m.music) {
+      const music = m.music;
+      const label = (on: boolean) => withIcon(on ? 'music' : 'musicOff', on ? 'Music on' : 'Music off');
+      const mb = el('button', 'big-btn ghost small', label(music.on));
+      mb.addEventListener('click', () => { mb.innerHTML = label(music.toggle()); });
+      mid.append(mb);
+    }
     card.append(mid);
     card.append(el('div', 'grid-title', 'Islands'));
     const grid = el('div', 'level-grid');
     for (const lv of m.levels) {
       const b = el('button', `level-btn${lv.index === m.current ? ' current' : ''}${lv.unlocked ? '' : ' locked'}`,
-        lv.unlocked ? `<b>${lv.index + 1}</b> ${lv.name}` : `<b>${lv.index + 1}</b> 🔒`);
+        lv.unlocked ? `<b>${lv.index + 1}</b> ${lv.name}` : `<b>${lv.index + 1}</b> ${ICONS.lock}`);
       b.disabled = !lv.unlocked;
       if (lv.unlocked) b.addEventListener('click', () => m.onJump(lv.index));
       grid.append(b);
@@ -321,7 +339,7 @@ export class Hud {
     `;
     card.append(rows);
     const btns = el('div', 'btns');
-    const cont = el('button', 'big-btn', isLast ? (piece ? 'It\'s alive! ⚡' : 'See final score') : 'Continue ▶');
+    const cont = el('button', 'big-btn', isLast ? (piece ? withIcon('bolt', 'It\'s alive!') : 'See final score') : withIcon('play', 'Continue'));
     cont.addEventListener('click', onContinue);
     btns.append(cont);
     card.append(btns);
@@ -361,9 +379,9 @@ export class Hud {
 
   private pieceEl(p: PieceReward): HTMLElement {
     const box = el('div', 'piece');
-    const pic = p.image ? `<img class="piece-monster" src="${p.image}" alt="Your monster so far" />` : `<div class="piece-emoji">${p.emoji}</div>`;
+    const pic = p.image ? `<img class="piece-monster" src="${p.image}" alt="Your monster so far" />` : `<div class="piece-fallback">${ICONS.monster}</div>`;
     const dots = Array.from({ length: p.total }, (_, i) => `<i class="${i < p.filled ? 'on' : ''}${i === p.filled - 1 ? ' new' : ''}"></i>`).join('');
-    box.innerHTML = `${pic}<div class="piece-text"><div class="piece-kicker">New body piece!</div><div class="piece-label">${p.emoji} ${p.label}</div><div class="piece-dots">${dots}</div><div class="piece-count">${p.filled} / ${p.total} pieces</div></div>`;
+    box.innerHTML = `${pic}<div class="piece-text"><div class="piece-kicker">New body piece!</div><div class="piece-label"><i class="dot" style="background:${p.color}"></i>${p.label}</div><div class="piece-dots">${dots}</div><div class="piece-count">${p.filled} / ${p.total} pieces</div></div>`;
     return box;
   }
 
@@ -376,7 +394,7 @@ export class Hud {
     const card = el('div', 'panel results final monster-final');
     card.innerHTML = `<div class="title">It's alive!</div><div class="subtitle">your Frankenstein is complete</div>`;
     const stage = el('div', 'monster-stage');
-    stage.innerHTML = monster.image ? `<img src="${monster.image}" alt="Your monster" />` : '<div class="piece-emoji big">🧟</div>';
+    stage.innerHTML = monster.image ? `<img src="${monster.image}" alt="Your monster" />` : `<div class="piece-fallback big">${ICONS.monster}</div>`;
     card.append(stage);
     const nameRow = el('label', 'name-row');
     nameRow.innerHTML = '<span>Name</span>';
@@ -389,7 +407,7 @@ export class Hud {
     card.append(nameRow);
     const name = () => input.value.trim() || monster.defaultName;
     const parts = el('div', 'parts');
-    parts.innerHTML = monster.parts.map((p) => `<span>${p}</span>`).join('');
+    parts.innerHTML = chips(monster.parts);
     card.append(parts);
     card.append(this.starsEl(stars, onStarSound));
     const rows = el('div', 'rows');
@@ -406,16 +424,40 @@ export class Hud {
     details.append(table);
     card.append(details);
     const btns = el('div', 'btns');
-    const share = el('button', 'big-btn share', 'Share 📤');
-    share.addEventListener('click', async () => {
-      share.disabled = true;
-      try { this.toast(await monster.onShare(name()), 'good'); } finally { share.disabled = false; }
+    // Keep a composed card ready for the current name, so a tap can share or
+    // save immediately (browsers and share sheets need the tap's user gesture).
+    let ready: PreparedCard | null = null;
+    let pending: Promise<PreparedCard> | null = null;
+    const prepare = () => {
+      const n = name();
+      const p = monster.prepare(n);
+      pending = p;
+      p.then((c) => { if (pending === p) ready = c; }).catch(() => { /* retried on tap */ });
+      return p;
+    };
+    const current = async () => (ready && ready.name === name() ? ready : prepare());
+    prepare();
+    let typing = 0;
+    input.addEventListener('input', () => {
+      ready = null;
+      clearTimeout(typing);
+      typing = window.setTimeout(prepare, 450);
     });
-    const save = el('button', 'big-btn alt', 'Save image');
-    save.addEventListener('click', async () => {
-      await monster.onDownload(name());
-      this.toast('Picture saved! 🖼', 'good');
-    });
+    const busy = (b: HTMLButtonElement, fn: () => Promise<void>) => async () => {
+      b.disabled = true;
+      try { await fn(); } finally { b.disabled = false; }
+    };
+    const share = el('button', 'big-btn share', withIcon('share', 'Share'));
+    share.addEventListener('click', busy(share, async () => {
+      const out = await monster.onShare(await current());
+      this.toast(out === 'shared' ? 'Shared!' : out === 'downloaded' ? 'Picture saved, link copied!' : 'Maybe later', out === 'cancelled' ? '' : 'good');
+    }));
+    const save = el('button', 'big-btn alt', withIcon('save', 'Save image'));
+    save.addEventListener('click', busy(save, async () => {
+      const out = await monster.onSave(await current());
+      if (out === 'downloaded') this.toast('Picture saved!', 'good');
+      else if (out === 'saved-sheet') this.toast('Pick "Save Image" to keep it', 'good');
+    }));
     const replay = el('button', 'big-btn ghost', 'Play again');
     replay.addEventListener('click', onReplay);
     btns.append(share, save, replay);

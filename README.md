@@ -10,7 +10,7 @@ The title screen has two campaigns. The last one picked is remembered, and
 `DEFAULT_CAMPAIGN` in `src/game/Campaign.ts` sets which one new players see.
 Switch it back to `'classic'` after the season.
 
-### 🎃 Spooky Night (Halloween)
+### Spooky Night (Halloween)
 
 A kawaii-horror take on the same ten-island run:
 
@@ -39,6 +39,15 @@ A kawaii-horror take on the same ten-island run:
   ghost, witch, skeleton, pumpkin, cyclops or slime.
 - Pieces are saved with your progress, so a resumed run keeps its monster.
 
+**Music.** Spooky Night has its own soundtrack, the "Monster Waltz": a little
+3/4 waltz in D minor, synthesized live with WebAudio (no audio files).
+- Each island gets its own arrangement: music box, harpsichord, plucked bass,
+  theremin, organ, bone xylophone, at different tempos and keys.
+- There are short cues when you clear an island and when your monster comes
+  alive.
+- The music ducks while the game is paused, and it can be switched off from
+  the pause menu.
+
 **Share it.** After the tenth island you can name your monster and share it
 as a picture with a link to the game:
 - In the apps, sharing uses the native share sheet (`@capacitor/share`).
@@ -50,7 +59,7 @@ The link is the page the game is served from. The apps have no web address
 of their own, so set `PUBLIC_GAME_URL` in `src/game/Campaign.ts` before
 shipping them.
 
-### 🏝 Classic
+### Classic
 
 The original islands, unchanged. Classic progress and best score keep their
 old save keys.
@@ -88,7 +97,7 @@ Each island:
 | `W A S D`, or the on-screen D-pad | Move the crane |
 | `←` `→` (or `Q` `E`), or the on-screen ↺ ↻ buttons | Rotate the claw head |
 | `Space` / `Enter`, or the DROP button | Drop the claw. While holding something: lower and release it |
-| `Esc`, or the on-screen ⏸ button | Pause: resume, restart the island, jump to any unlocked island, and (Spooky Night) see the monster so far |
+| `Esc`, or the on-screen pause button | Pause: resume, restart the island, jump to any unlocked island, and (Spooky Night) see the monster so far |
 | `P` | Toggle physics collider wireframes |
 | `M` | Mute sound |
 
@@ -187,4 +196,6 @@ src/
   ui/Hud.ts               DOM overlay: timer, attempts, target cards, intro/results, monster screen
   ui/Share.ts             share card composition and native/web sharing
   audio/Sfx.ts            WebAudio synth cues
+  audio/Music.ts          Spooky Night soundtrack: lookahead sequencer, score and per-island arrangements
+  ui/Icons.ts             drawn SVG icons used across the HUD (the UI uses no emoji)
 ```

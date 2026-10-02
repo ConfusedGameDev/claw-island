@@ -335,9 +335,3 @@ export const EXTRA_KINDS: Record<string, KindDef> = {
     collider: () => RAPIER.ColliderDesc.cuboid(0.17, 0.14, 0.06),
   },
 };
-
-export const EXTRA_EMOJI: Record<string, string> = {
-  lollipop: '🍭', donut: '🍩', cupcake: '🧁', wrappedcandy: '🍬', icecream: '🍦', crate: '📦', gear: '⚙️', bolt: '🔩',
-  battery: '🔋', robot: '🤖', coin: '🪙', vase: '🏺', scarab: '🪲', pumpkin: '🎃', skull: '💀', bat: '🦇', slime: '🟢',
-  candle: '🕯️', feather: '🪶', magnet: '🧲', crownghost: '👻',
-};

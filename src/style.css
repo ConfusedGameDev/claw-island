@@ -521,3 +521,30 @@ body.halloween .mini-stars i { color: #c9b8e6; }
 .level-btn.current { background: var(--gold); box-shadow: 0 3px 0 var(--ink); }
 .level-btn.locked { opacity: 0.45; cursor: not-allowed; }
 .level-btn:not(.locked):active { transform: translateY(2px); }
+
+/* ---------- drawn icons (no emoji) ---------- */
+.icon { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
+.big-btn .icon, .campaign-tab .icon { margin-right: 0.35em; }
+.big-btn, .campaign-tab { display: inline-flex; align-items: center; justify-content: center; }
+.pill .ico { display: inline-flex; }
+.pill .ico .icon { width: 20px; height: 20px; }
+.pause-btn .icon { width: 20px; height: 20px; }
+.title-icon { display: inline-block; margin-right: 8px; }
+.title-icon .icon { width: 0.9em; height: 0.9em; vertical-align: -0.08em; }
+.level-btn .icon { width: 16px; height: 16px; vertical-align: -3px; }
+.piece-fallback { width: 112px; height: 112px; display: grid; place-items: center; color: var(--ink); }
+.piece-fallback .icon { width: 72px; height: 72px; }
+.piece-fallback.big .icon { width: 160px; height: 160px; }
+.card-fallback { color: var(--ink); display: grid; place-items: center; }
+.card-fallback .icon { width: 34px; height: 34px; }
+.dot {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  margin-right: 0.35em;
+  vertical-align: -0.08em;
+  flex: none;
+}
+.parts span { display: inline-flex; align-items: center; }

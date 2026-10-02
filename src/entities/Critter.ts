@@ -50,7 +50,7 @@ export class EllipseRegion implements Region {
   }
 }
 
-export type CritterState = 'WANDER' | 'IDLE' | 'HELD' | 'FALLING' | 'FLEE' | 'FREEZE' | 'GONE';
+export type CritterState = 'WANDER' | 'IDLE' | 'HELD' | 'FALLING' | 'FLEE' | 'FREEZE' | 'CHARGE' | 'GONE';
 
 export interface CritterOpts {
   kind: string;
@@ -69,6 +69,8 @@ export interface CritterOpts {
   headingOffset?: number;
   /** Ground height under a point (world space); defaults to flat ground. */
   groundY?: (x: number, z: number) => number;
+  /** Whether a descending claw makes it freeze in place (prey does, guards don't). */
+  freezes?: boolean;
 }
 
 /**
@@ -92,6 +94,8 @@ export abstract class Critter implements Grabbable {
   state: CritterState = 'IDLE';
   onSquawk: (() => void) | null = null;
   onChatter: (() => void) | null = null;
+  /** Fired once when a charging critter reaches its target. */
+  onReach: (() => void) | null = null;
 
   protected pos = new THREE.Vector3();
   protected heading = 0;
@@ -100,6 +104,9 @@ export abstract class Critter implements Grabbable {
   private target = { x: 0, z: 0 };
   private stateDur = 1;
   private lastObstacles: Obstacle[] = [];
+  private chargeTarget: (() => { x: number; z: number }) | null = null;
+  private chargeSpeed = 2.5;
+  private reached = false;
   private progressT = 0;
   private progressPos = new THREE.Vector2();
   private stuckStrikes = 0;
@@ -172,6 +179,34 @@ export abstract class Critter implements Grabbable {
     this.enter('FALLING');
   }
 
+  /** Run at a moving target (e.g. the claw) until stopCharge() or the target is reached. */
+  chargeAt(target: () => { x: number; z: number }, speed = 2.5): void {
+    if (this.state === 'HELD' || this.state === 'FALLING' || this.state === 'GONE') return;
+    this.chargeTarget = target;
+    this.chargeSpeed = speed;
+    this.reached = false;
+    this.enter('CHARGE');
+    this.onSquawk?.();
+  }
+
+  /** Break off: run away from the target, then go back to patrolling. */
+  stopCharge(): void {
+    if (this.state !== 'CHARGE') return;
+    const t = this.chargeTarget?.();
+    this.chargeTarget = null;
+    if (t) {
+      const fx = this.pos.x - t.x;
+      const fz = this.pos.z - t.z;
+      const l = Math.hypot(fx, fz) || 1;
+      this.fleeDir.set(fx / l, fz / l);
+    }
+    this.enter('FLEE');
+  }
+
+  get charging(): boolean {
+    return this.state === 'CHARGE';
+  }
+
   dispose(): void {
     if (this.removed) return;
     this.removed = true;
@@ -237,7 +272,7 @@ export abstract class Critter implements Grabbable {
     this.lastObstacles = obstacles;
 
     const clawDist = Math.hypot(this.pos.x - clawXZ.x, this.pos.z - clawXZ.z);
-    if (clawDescending && clawDist < 0.7 && this.state !== 'FALLING' && this.state !== 'FREEZE') this.enter('FREEZE');
+    if ((o.freezes ?? true) && clawDescending && clawDist < 0.7 && this.state !== 'FALLING' && this.state !== 'FREEZE' && this.state !== 'CHARGE') this.enter('FREEZE');
 
     switch (this.state) {
       case 'IDLE':
@@ -294,6 +329,27 @@ export abstract class Critter implements Grabbable {
         this.walkPhase += speed * dt * 14;
         break;
       }
+      case 'CHARGE': {
+        const t = this.chargeTarget?.();
+        if (!t) { this.enter('IDLE'); break; }
+        let dx = t.x - this.pos.x;
+        let dz = t.z - this.pos.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.42) {
+          if (!this.reached) { this.reached = true; this.onReach?.(); }
+          break;
+        }
+        dx /= dist;
+        dz /= dist;
+        const want = Math.atan2(dx, dz);
+        let diff = want - this.heading;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        this.heading += clamp(diff, -10 * dt, 10 * dt);
+        this.pos.x += Math.sin(this.heading) * this.chargeSpeed * dt;
+        this.pos.z += Math.cos(this.heading) * this.chargeSpeed * dt;
+        this.walkPhase += this.chargeSpeed * dt * 14;
+        break;
+      }
       case 'FALLING': {
         this.fallVel.y -= 9.81 * dt;
         this.pos.addScaledVector(this.fallVel, dt);
@@ -318,7 +374,7 @@ export abstract class Critter implements Grabbable {
         break;
     }
 
-    if (this.state === 'WANDER' || this.state === 'FLEE' || this.state === 'IDLE' || this.state === 'FREEZE') {
+    if (this.state === 'WANDER' || this.state === 'FLEE' || this.state === 'IDLE' || this.state === 'FREEZE' || this.state === 'CHARGE') {
       for (const ob of obstacles) {
         const ox = this.pos.x - ob.x;
         const oz = this.pos.z - ob.z;

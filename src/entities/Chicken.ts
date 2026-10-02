@@ -5,7 +5,9 @@ import type { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { LevelDef } from '../game/Levels';
 import { damp } from '../util/math';
 
-const COL = { white: 0xfff8f0, orange: 0xff9b2f, red: 0xff3b3b, black: 0x222233 };
+const COL = { white: 0xfff8f0, orange: 0xff9b2f, red: 0xff3b3b, black: 0x222233, feather: 0x2b2b35, featherDark: 0x1a1a22, eyeRed: 0xff3030 };
+
+export type ChickenVariant = 'white' | 'black';
 
 /** A cucco: wanders, pecks, freezes under the claw, flaps when carried. */
 export class Chicken extends Critter {
@@ -16,19 +18,28 @@ export class Chicken extends Critter {
   private flap = 0;
   private peckT = 0;
 
-  constructor(scene: THREE.Scene, phys: PhysicsWorld, start: { x: number; z: number }, rng: () => number, level: LevelDef, region: Region) {
-    super(scene, phys, start, rng, level, region, {
-      kind: 'chicken', name: 'Cucco', def: { top: 0.22, bottom: 0.2, grip: 0.6 },
-      bodyY: 0.2, walkSpeed: 0.55, fleeSpeed: 1.7, radius: 0.18, escapeAfter: 2.2, idleTime: [0.8, 2.4],
-    });
+  constructor(
+    scene: THREE.Scene, phys: PhysicsWorld, start: { x: number; z: number }, rng: () => number, level: LevelDef, region: Region,
+    readonly variant: ChickenVariant = 'white',
+  ) {
+    super(scene, phys, start, rng, level, region, variant === 'black'
+      ? {
+        kind: 'blackchicken', name: 'Black Cucco', def: { top: 0.22, bottom: 0.2, grip: 0.5 },
+        bodyY: 0.2, walkSpeed: 0.9, fleeSpeed: 2.2, radius: 0.18, escapeAfter: 1.2, idleTime: [0.4, 1.2], freezes: false,
+      }
+      : {
+        kind: 'chicken', name: 'Cucco', def: { top: 0.22, bottom: 0.2, grip: 0.6 },
+        bodyY: 0.2, walkSpeed: 0.55, fleeSpeed: 1.7, radius: 0.18, escapeAfter: 2.2, idleTime: [0.8, 2.4],
+      });
     this.attachMesh();
   }
 
   protected buildMesh(): THREE.Object3D {
-    const white = plastic(COL.white, { roughness: 0.6 });
+    const dark = this.variant === 'black';
+    const white = plastic(dark ? COL.feather : COL.white, { roughness: 0.6 });
     const orange = plastic(COL.orange, { roughness: 0.5 });
     const red = plastic(COL.red, { roughness: 0.5 });
-    const black = plastic(COL.black, { roughness: 0.4 });
+    const black = dark ? plastic(COL.eyeRed, { roughness: 0.3, emissive: COL.eyeRed, emissiveIntensity: 0.6 }) : plastic(COL.black, { roughness: 0.4 });
     const root = new THREE.Group();
 
     this.bodyMesh = new THREE.Group();
@@ -64,7 +75,7 @@ export class Chicken extends Critter {
     wattle.position.set(0, -0.06, 0.08);
     this.head.add(wattle);
     for (const [y, z] of [[0.1, 0.02], [0.11, -0.03], [0.09, -0.07]]) {
-      const comb = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), red);
+      const comb = new THREE.Mesh(new THREE.SphereGeometry(dark ? 0.04 : 0.03, 8, 6), red);
       comb.position.set(0, y, z);
       this.head.add(comb);
     }
@@ -93,7 +104,7 @@ export class Chicken extends Critter {
 
   animate(dt: number, t: number): void {
     if (this.removed) return;
-    const walking = this.state === 'WANDER' || this.state === 'FLEE';
+    const walking = this.state === 'WANDER' || this.state === 'FLEE' || this.state === 'CHARGE';
     const held = this.state === 'HELD';
     const legSwing = walking ? Math.sin(this.walkPhase) * 0.7 : held ? Math.sin(t * 20) * 0.5 : 0;
     this.legs[0].rotation.x = legSwing;
@@ -108,11 +119,11 @@ export class Chicken extends Critter {
       this.head.position.y = 0.14 - dip * 0.12;
       if (dip > 0.4 && Math.random() < 0.08) this.onChatter?.();
     } else {
-      const look = held ? -0.3 : this.state === 'FREEZE' ? -0.6 : 0;
+      const look = held ? -0.3 : this.state === 'FREEZE' ? -0.6 : this.state === 'CHARGE' ? 0.35 : 0;
       this.head.rotation.x = damp(this.head.rotation.x, look, 10, dt);
       this.head.position.y = damp(this.head.position.y, 0.14, 10, dt);
     }
-    const targetFlap = held || this.state === 'FALLING' ? 1 : 0;
+    const targetFlap = held || this.state === 'FALLING' || this.state === 'CHARGE' ? 1 : 0;
     this.flap = damp(this.flap, targetFlap, 8, dt);
     const flapA = Math.sin(t * 28) * 0.9 * this.flap;
     this.wings[0].rotation.z = 0.15 + flapA;

@@ -130,7 +130,13 @@ export class Game {
         this.timerRunning = true;
         this.sfx.descend();
       },
-      onGrab: () => this.sfx.grab(),
+      onGrab: (c) => {
+        this.sfx.grab();
+        // Lifting a white cucco provokes the black ones.
+        if (c.kind === 'chicken') {
+          for (const g of this.cur.critters) if (g.kind === 'blackchicken' && !g.removed) g.chargeAt(() => this.claw.pos, 2.6);
+        }
+      },
       onTell: () => this.sfx.rattle(),
       onMiss: () => this.sfx.miss(),
       onSlip: () => {
@@ -243,19 +249,21 @@ export class Game {
       ...(def.lagoon ? [{ x: o.x + def.lagoon.x, z: o.z + def.lagoon.z, r: Math.max(def.lagoon.rx, def.lagoon.rz) + 0.3 }] : []),
     ];
     const land = new RectRegion(o.x, o.z, FENCE.hx - 0.4, FENCE.hz - 0.4, landAvoid);
-    const critterPoints = pickSpawnPoints(def.critters, this.rng, { hx: FENCE.hx - 0.5, hz: FENCE.hz - 0.5 }, [
+    const critterPoints = pickSpawnPoints(def.critters + (def.guards ?? 0), this.rng, { hx: FENCE.hx - 0.5, hz: FENCE.hz - 0.5 }, [
       ...exclusions, { x: def.button.x, z: def.button.z, r: 1.1 },
       ...points.map((p) => ({ x: p.x, z: p.y, r: 0.5 })),
     ], 0.8);
-    for (const p of critterPoints) {
+    critterPoints.forEach((p, i) => {
       const start = { x: o.x + p.x, z: o.z + p.y };
+      const guard = i >= def.critters;
       const c: Critter = def.critter === 'crab'
         ? new Crab(this.scene, this.phys, start, this.rng, def, land, 'red')
-        : new Chicken(this.scene, this.phys, start, this.rng, def, land);
+        : new Chicken(this.scene, this.phys, start, this.rng, def, land, guard ? 'black' : 'white');
       c.onSquawk = () => this.sfx.squawk();
       c.onChatter = () => this.sfx.cluck();
+      if (guard) c.onReach = () => this.onGuardReached(c);
       lv.critters.push(c);
-    }
+    });
     if (def.special === 'diamondcrab' && def.lagoon) {
       const L = def.lagoon;
       const pond = new EllipseRegion(o.x + L.x, o.z + L.z, L.rx * 0.7, L.rz * 0.7);
@@ -410,6 +418,26 @@ export class Game {
     this.setPhase('PHASE_WEIGHT');
   }
 
+  /** A black cucco reached the claw: if it is still low with a cucco in its grip, the cucco gets knocked loose. */
+  private onGuardReached(guard: Critter): void {
+    const held = this.claw.held;
+    if (held && held.kind === 'chicken' && this.claw.lowEnoughToReach) {
+      this.claw.knockOff();
+      this.hud.toast('The black cucco knocked it loose!', 'bad');
+      this.sfx.squawk();
+      this.sfx.slip();
+    }
+    guard.stopCharge();
+  }
+
+  /** Guards give up once the claw is out of reach or no cucco is held. */
+  private updateGuards(): void {
+    const held = this.claw.held;
+    const threat = held !== null && held.kind === 'chicken' && this.claw.lowEnoughToReach;
+    if (threat) return;
+    for (const g of this.cur.critters) if (g.charging) g.stopCharge();
+  }
+
   private onButtonPressed(lv: LevelRuntime): void {
     if (lv !== this.cur || this.phase !== 'PHASE_WEIGHT') return;
     this.sfx.buttonPress();
@@ -463,6 +491,7 @@ export class Game {
 
   private preStep(dt: number, playing: boolean): void {
     this.claw.step(dt, this.input, playing);
+    this.updateGuards();
     const descending = this.claw.state === 'DESCENDING' || this.claw.state === 'CLOSING';
     for (const lv of this.levels) {
       lv.button.step(dt);

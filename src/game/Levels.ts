@@ -52,6 +52,8 @@ export interface LevelDef {
   /** Which small creature roams the island, and how many. */
   critter: 'chicken' | 'crab';
   critters: number;
+  /** Black cuccos that charge the claw when a white one is lifted. */
+  guards?: number;
   /** A lagoon inside the fence (island-local). Home of the diamond crab. */
   lagoon?: { x: number; z: number; rx: number; rz: number };
   /** A guaranteed special target living in the lagoon. */
@@ -101,8 +103,8 @@ export const THEMES: Record<'meadow' | 'beach' | 'snow' | 'volcano', ThemeDef> =
 export const levelOrigin = (index: number): { x: number; z: number } => ({ x: 0, z: -index * LEVEL_SPACING });
 
 export const LEVELS: LevelDef[] = [
-  { index: 0, name: 'Meadow', theme: THEMES.meadow, origin: levelOrigin(0), targets: 3, decoys: 11, critter: 'chicken', critters: 3, gripScale: 1.0, button: { x: 2.4, z: 1.6 }, weight: { x: 0, z: 1.7 } },
+  { index: 0, name: 'Meadow', theme: THEMES.meadow, origin: levelOrigin(0), targets: 3, decoys: 11, critter: 'chicken', critters: 3, guards: 1, gripScale: 1.0, button: { x: 2.4, z: 1.6 }, weight: { x: 0, z: 1.7 } },
   { index: 1, name: 'Beach', theme: THEMES.beach, origin: levelOrigin(1), targets: 3, decoys: 13, critter: 'crab', critters: 4, gripScale: 1.0, button: { x: -2.6, z: -1.9 }, weight: { x: 2.2, z: 1.9 }, lagoon: { x: -1.6, z: 1.3, rx: 1.15, rz: 0.85 }, special: 'diamondcrab' },
-  { index: 2, name: 'Snowfield', theme: THEMES.snow, origin: levelOrigin(2), targets: 4, decoys: 14, critter: 'chicken', critters: 4, gripScale: 1.0, button: { x: 2.6, z: -1.8 }, weight: { x: 0, z: 1.9 } },
-  { index: 3, name: 'Volcano', theme: THEMES.volcano, origin: levelOrigin(3), targets: 4, decoys: 16, critter: 'chicken', critters: 5, gripScale: 0.85, button: { x: -2.6, z: 1.8 }, weight: { x: 2.4, z: -1.9 } },
+  { index: 2, name: 'Snowfield', theme: THEMES.snow, origin: levelOrigin(2), targets: 4, decoys: 14, critter: 'chicken', critters: 4, guards: 1, gripScale: 1.0, button: { x: 2.6, z: -1.8 }, weight: { x: 0, z: 1.9 } },
+  { index: 3, name: 'Volcano', theme: THEMES.volcano, origin: levelOrigin(3), targets: 4, decoys: 16, critter: 'chicken', critters: 5, guards: 2, gripScale: 0.85, button: { x: -2.6, z: 1.8 }, weight: { x: 2.4, z: -1.9 } },
 ];

@@ -527,6 +527,22 @@ export class Claw {
     this.events.onRelease?.(c);
   }
 
+  /** Something knocked the held thing loose (black cucco attack). Returns what fell. */
+  knockOff(): Grabbable | null {
+    const c = this.held;
+    if (!c) return null;
+    this.detach(true);
+    this.open01 = Math.max(this.open01, 0.6);
+    this.bounceVel = -5;
+    if (this.state === 'HOLDING' || this.state === 'LOWERING' || this.state === 'SQUEEZING' || this.state === 'CLOSING') this.enter('ASCENDING');
+    return c;
+  }
+
+  /** True while the claw is still low enough to be reached from the ground. */
+  get lowEnoughToReach(): boolean {
+    return this.pos.y < LAYOUT.GANTRY.restY - 0.8;
+  }
+
   /** Called when the held thing was removed by the game (e.g. fell in the hole). */
   forgetHeld(c: Grabbable): void {
     if (this.held === c) {

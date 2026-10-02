@@ -88,6 +88,7 @@ Each island:
 | `W A S D`, or the on-screen D-pad | Move the crane |
 | `←` `→` (or `Q` `E`), or the on-screen ↺ ↻ buttons | Rotate the claw head |
 | `Space` / `Enter`, or the DROP button | Drop the claw. While holding something: lower and release it |
+| `Esc`, or the on-screen ⏸ button | Pause: resume, restart the island, jump to any unlocked island, and (Spooky Night) see the monster so far |
 | `P` | Toggle physics collider wireframes |
 | `M` | Mute sound |
 

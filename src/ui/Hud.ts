@@ -16,6 +16,23 @@ export interface PieceReward {
   total: number;
 }
 
+/** The monster so far, for the pause menu. */
+export interface PauseMonster {
+  image: string | null;
+  filled: number;
+  total: number;
+  parts: string[];
+}
+
+export interface PauseMenu {
+  current: number;
+  levels: { index: number; name: string; unlocked: boolean }[];
+  monster?: PauseMonster;
+  onResume: () => void;
+  onRestart: () => void;
+  onJump: (index: number) => void;
+}
+
 /** The finished monster (final screen). */
 export interface MonsterFinal {
   image: string | null;
@@ -48,6 +65,9 @@ export class Hud {
   private toastHost: HTMLElement;
   private cards = new Map<string, HTMLElement>();
   private lastTimer = '';
+  private pauseBtn: HTMLButtonElement;
+  /** Set by the game: the ⏸ button was pressed. */
+  onPause: (() => void) | null = null;
 
   constructor(input: Input) {
     const top = el('div', 'hud-top');
@@ -55,7 +75,10 @@ export class Hud {
     this.timerEl = el('div', 'pill', '<span class="ico">⏱</span><span class="val">0:00</span>');
     this.attemptsEl = el('div', 'pill', '<span class="ico">🕹</span><span class="val">0</span>');
     this.levelEl = el('div', 'pill level', '<span class="val">Lv 1 · Meadow</span>');
-    stats.append(this.levelEl, this.timerEl, this.attemptsEl);
+    this.pauseBtn = el('button', 'pill pause-btn hidden', '⏸');
+    this.pauseBtn.setAttribute('aria-label', 'Pause');
+    this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); this.onPause?.(); });
+    stats.append(this.levelEl, this.timerEl, this.attemptsEl, this.pauseBtn);
     const banner = el('div', 'banner');
     this.bannerEl = el('div', 'banner-title');
     this.bannerSub = el('div', 'banner-sub');
@@ -205,6 +228,50 @@ export class Hud {
     }
     card.append(btns);
     card.append(el('div', 'hint', resume ? 'press any key for a new game' : 'press any key or tap to start'));
+    this.overlay.append(card);
+  }
+
+  setPauseVisible(visible: boolean): void {
+    if (this.pauseBtn.classList.contains('hidden') === !visible) return;
+    this.pauseBtn.classList.toggle('hidden', !visible);
+  }
+
+  showPause(m: PauseMenu): void {
+    this.setPauseVisible(false);
+    this.overlay.classList.remove('hidden');
+    this.overlay.innerHTML = '';
+    const card = el('div', 'panel pause');
+    card.addEventListener('pointerdown', (e) => e.stopPropagation());
+    card.innerHTML = `<div class="title">Paused${m.monster ? ' 🦇' : ''}</div>`;
+    const resume = el('button', 'big-btn', 'Resume ▶');
+    resume.addEventListener('click', m.onResume);
+    const top = el('div', 'btns');
+    top.append(resume);
+    card.append(top);
+    if (m.monster) {
+      const box = el('div', 'piece pause-monster');
+      const pic = m.monster.image ? `<img class="piece-monster" src="${m.monster.image}" alt="Your monster so far" />` : '<div class="piece-emoji">🧟</div>';
+      const dots = Array.from({ length: m.monster.total }, (_, i) => `<i class="${i < m.monster!.filled ? 'on' : ''}"></i>`).join('');
+      const parts = m.monster.parts.length ? m.monster.parts.map((p) => `<span>${p}</span>`).join('') : '<span>No pieces yet: clear an island!</span>';
+      box.innerHTML = `${pic}<div class="piece-text"><div class="piece-kicker">Your monster</div><div class="piece-dots">${dots}</div><div class="piece-count">${m.monster.filled} / ${m.monster.total} pieces</div><div class="parts">${parts}</div></div>`;
+      card.append(box);
+    }
+    const restart = el('button', 'big-btn alt small', '↻ Restart island');
+    restart.addEventListener('click', m.onRestart);
+    const mid = el('div', 'btns');
+    mid.append(restart);
+    card.append(mid);
+    card.append(el('div', 'grid-title', 'Islands'));
+    const grid = el('div', 'level-grid');
+    for (const lv of m.levels) {
+      const b = el('button', `level-btn${lv.index === m.current ? ' current' : ''}${lv.unlocked ? '' : ' locked'}`,
+        lv.unlocked ? `<b>${lv.index + 1}</b> ${lv.name}` : `<b>${lv.index + 1}</b> 🔒`);
+      b.disabled = !lv.unlocked;
+      if (lv.unlocked) b.addEventListener('click', () => m.onJump(lv.index));
+      grid.append(b);
+    }
+    card.append(grid);
+    card.append(el('div', 'hint', 'Esc · resume'));
     this.overlay.append(card);
   }
 

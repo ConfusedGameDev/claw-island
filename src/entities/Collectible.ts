@@ -4,6 +4,7 @@ import { PAL, plastic } from '../scene/Materials';
 import { PhysicsWorld, OBJECT_GROUPS, HELD_GROUPS } from '../physics/PhysicsWorld';
 import type { Grabbable, GrabDef } from './Grabbable';
 import { EXTRA_KINDS, EXTRA_EMOJI } from './KindsExtra';
+import { SPOOKY_KINDS, SPOOKY_EMOJI } from './KindsHalloween';
 
 /** Any key of KINDS (base catalog plus the later islands' pickups in KindsExtra.ts). */
 export type Kind = string;
@@ -222,7 +223,7 @@ const BASE_KINDS: Record<string, KindDef> = {
   },
 };
 
-export const KINDS: Record<string, KindDef> = { ...BASE_KINDS, ...EXTRA_KINDS };
+export const KINDS: Record<string, KindDef> = { ...BASE_KINDS, ...EXTRA_KINDS, ...SPOOKY_KINDS };
 
 /** Every kind that can show up as a pickup or target (tools and the weight excluded). */
 export const PICKUP_KINDS: string[] = Object.keys(KINDS).filter((k) => k !== 'weight' && k !== 'magnet');
@@ -383,4 +384,5 @@ export function renderIcons(entries: IconEntry[]): Record<string, string> {
 export const EMOJI_FALLBACK: Record<string, string> = {
   rupee: '💎', heart: '❤️', shell: '🐚', acorn: '🌰', mushroom: '🍄', star: '⭐', rock: '🪨', bomb: '💣', weight: '🏋️', diamondcrab: '🦀',
   ...EXTRA_EMOJI,
+  ...SPOOKY_EMOJI,
 };

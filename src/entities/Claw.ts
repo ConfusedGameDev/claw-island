@@ -7,6 +7,7 @@ import { PhysicsWorld, CLAW_GROUPS, GRAB_QUERY_GROUPS, groups, G } from '../phys
 import { grabbableOf, type Grabbable } from './Grabbable';
 import type { Input } from '../game/Input';
 import { clamp, damp, easeOutCubic, lerp } from '../util/math';
+import { boneDarkMat, boneGeometry, boneMat, skullMesh } from '../scene/Bones';
 
 export const CLAW = {
   MOVE_SPEED: 2.4,
@@ -111,9 +112,12 @@ export class Claw {
 
   private fingerPivots: THREE.Group[] = [];
   private fingerColliders: RAPIER.Collider[] = [];
-  private carriage: THREE.Mesh;
-  private crossbar: THREE.Mesh;
-  private cable: THREE.Mesh;
+  private carriage!: THREE.Object3D;
+  private crossbar!: THREE.Object3D;
+  private cable!: THREE.Mesh;
+  /** Bone look: vertebrae strung along the cable, kept at a fixed size. */
+  private cableBeads: THREE.Group | null = null;
+  private static readonly BEAD_SPACING = 0.11;
   private bounce = 0;
   private bounceVel = 0;
 
@@ -123,9 +127,34 @@ export class Claw {
   private yawQ = new THREE.Quaternion();
   private readonly UP = new THREE.Vector3(0, 1, 0);
 
-  constructor(scene: THREE.Scene, private phys: PhysicsWorld) {
-    const { GANTRY } = LAYOUT;
+  constructor(scene: THREE.Scene, private phys: PhysicsWorld, look: 'plastic' | 'bone' = 'plastic') {
     this.setOrigin({ x: 0, z: 0 });
+    if (look === 'bone') this.buildBoneVisuals();
+    else this.buildPlasticVisuals();
+    scene.add(this.rig);
+    scene.add(this.head);
+
+    this.buildMagnet();
+
+    // ---- physics
+    this.body = phys.world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.pos.x, this.pos.y, this.pos.z),
+    );
+    phys.world.createCollider(RAPIER.ColliderDesc.cylinder(0.08, 0.22).setCollisionGroups(CLAW_GROUPS), this.body);
+    for (let i = 0; i < 3; i++) {
+      const col = phys.world.createCollider(
+        RAPIER.ColliderDesc.capsule(CLAW.FINGER_HALF, 0.05).setCollisionGroups(CLAW_GROUPS).setFriction(1.0),
+        this.body,
+      );
+      this.fingerColliders.push(col);
+    }
+    phys.register(this.body, this.head);
+    this.applyFingers(1);
+  }
+
+  // -------------------------------------------------------------- visuals
+  private buildPlasticVisuals(): void {
+    const { GANTRY } = LAYOUT;
     const frameMat = plastic(PAL.gantry, { roughness: 0.35 });
     const accentMat = plastic(PAL.gantryAccent, { roughness: 0.35 });
 
@@ -151,7 +180,6 @@ export class Claw {
     cableGeo.translate(0, -0.5, 0);
     this.cable = new THREE.Mesh(cableGeo, plastic(PAL.cable, { roughness: 0.6 }));
     this.rig.add(this.cable);
-    scene.add(this.rig);
 
     // ---- head visuals
     const clawMat = plastic(PAL.claw, { roughness: 0.3, metalness: 0.1 });
@@ -199,6 +227,99 @@ export class Claw {
       this.head.add(pivot);
       this.fingerPivots.push(pivot);
     }
+  }
+
+  /** Spooky campaign: bone crossbar, skull carriage, vertebra cable, skeletal fingers. */
+  private buildBoneVisuals(): void {
+    const { GANTRY } = LAYOUT;
+    const bone = boneMat();
+    const dark = boneDarkMat();
+    const eyeGlow = plastic(0xb48cff, { emissive: 0xb48cff, emissiveIntensity: 1.4, roughness: 0.3 });
+
+    // Crossbar: one long bone with knobbly shoes riding the spine rails.
+    const crossbar = new THREE.Mesh(boneGeometry(GANTRY.postX * 2 - 0.1, 0.07), bone);
+    crossbar.rotation.z = Math.PI / 2;
+    crossbar.castShadow = true;
+    this.crossbar = new THREE.Group();
+    this.crossbar.position.y = GANTRY.railY + 0.12;
+    this.crossbar.add(crossbar);
+    this.rig.add(this.crossbar);
+    for (const sx of [-1, 1]) {
+      const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), dark);
+      shoe.scale.y = 0.75;
+      shoe.position.set(sx * GANTRY.postX, 0, 0);
+      shoe.castShadow = true;
+      this.crossbar.add(shoe);
+    }
+    // Carriage: a big kawaii skull with glowing eyes.
+    this.carriage = skullMesh(0.5, eyeGlow);
+    this.carriage.position.y = GANTRY.railY + 0.12;
+    this.rig.add(this.carriage);
+
+    // Cable: a thin cord threaded with vertebrae (they keep their size as the cord stretches).
+    const cordGeo = new THREE.CylinderGeometry(0.014, 0.014, 1, 6);
+    cordGeo.translate(0, -0.5, 0);
+    this.cable = new THREE.Mesh(cordGeo, dark);
+    this.rig.add(this.cable);
+    this.cableBeads = new THREE.Group();
+    const beadGeo = new THREE.SphereGeometry(0.055, 10, 6).scale(1.2, 0.5, 1.2);
+    for (let i = 0; i < 40; i++) {
+      const bead = new THREE.Mesh(beadGeo, bone);
+      bead.position.y = -(i + 0.5) * Claw.BEAD_SPACING;
+      this.cableBeads.add(bead);
+    }
+    this.rig.add(this.cableBeads);
+
+    // ---- head: a little skull hub with three finger bones
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.12, 16), dark);
+    hub.castShadow = true;
+    this.head.add(hub);
+    const skull = skullMesh(0.36, eyeGlow);
+    skull.position.y = 0.17;
+    this.head.add(skull);
+    // A little bow on the skull marks the heading.
+    const bowMat = plastic(0xff7fb0, { roughness: 0.4 });
+    for (const s of [-1, 1]) {
+      const loop = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.09, 8), bowMat);
+      loop.rotation.z = s * Math.PI / 2;
+      loop.position.set(s * 0.05, 0.33, 0.06);
+      this.head.add(loop);
+    }
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), bowMat);
+    knot.position.set(0, 0.33, 0.06);
+    this.head.add(knot);
+
+    const upperGeo = boneGeometry(0.3, 0.035);
+    const lowerGeo = boneGeometry(0.15, 0.03);
+    for (let i = 0; i < 3; i++) {
+      const pivot = new THREE.Group();
+      const theta = (i / 3) * Math.PI * 2;
+      pivot.position.set(Math.cos(theta) * CLAW.FINGER_PIVOT_R, CLAW.FINGER_PIVOT_Y, Math.sin(theta) * CLAW.FINGER_PIVOT_R);
+      const knuckle = new THREE.Mesh(new THREE.SphereGeometry(0.065, 10, 8), dark);
+      pivot.add(knuckle);
+      const upper = new THREE.Mesh(upperGeo, bone);
+      upper.position.y = -0.17;
+      upper.castShadow = true;
+      pivot.add(upper);
+      const lower = new THREE.Group();
+      lower.position.y = -0.32;
+      const axis = this.fingerAxis(i, this.tmpV);
+      lower.quaternion.setFromAxisAngle(axis, -0.65);
+      const seg = new THREE.Mesh(lowerGeo, bone);
+      seg.position.y = -0.1;
+      seg.castShadow = true;
+      lower.add(seg);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.09, 8), dark);
+      tip.rotation.x = Math.PI;
+      tip.position.y = -0.21;
+      lower.add(tip);
+      pivot.add(lower);
+      this.head.add(pivot);
+      this.fingerPivots.push(pivot);
+    }
+  }
+
+  private buildMagnet(): void {
     // Magnet tool, hidden until picked up.
     this.magnetMesh = new THREE.Group();
     const red = plastic(PAL.buttonCap, { roughness: 0.3 });
@@ -217,22 +338,6 @@ export class Claw {
     }
     this.magnetMesh.visible = false;
     this.head.add(this.magnetMesh);
-    scene.add(this.head);
-
-    // ---- physics
-    this.body = phys.world.createRigidBody(
-      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.pos.x, this.pos.y, this.pos.z),
-    );
-    phys.world.createCollider(RAPIER.ColliderDesc.cylinder(0.08, 0.22).setCollisionGroups(CLAW_GROUPS), this.body);
-    for (let i = 0; i < 3; i++) {
-      const col = phys.world.createCollider(
-        RAPIER.ColliderDesc.capsule(CLAW.FINGER_HALF, 0.05).setCollisionGroups(CLAW_GROUPS).setFriction(1.0),
-        this.body,
-      );
-      this.fingerColliders.push(col);
-    }
-    phys.register(this.body, this.head);
-    this.applyFingers(1);
   }
 
   // -------------------------------------------------------------- helpers
@@ -636,6 +741,11 @@ export class Claw {
     this.carriage.position.set(hp.x, GANTRY.railY + 0.12, hp.z);
     this.cable.position.set(hp.x, GANTRY.railY - 0.02, hp.z);
     this.cable.scale.y = Math.max(0.05, GANTRY.railY - 0.02 - hp.y - 0.05);
+    if (this.cableBeads) {
+      this.cableBeads.position.copy(this.cable.position);
+      const len = this.cable.scale.y;
+      for (const [i, bead] of this.cableBeads.children.entries()) bead.visible = (i + 0.5) * Claw.BEAD_SPACING < len - 0.02;
+    }
     const k = 60;
     const c = 7;
     this.bounceVel += (-this.bounce * k - this.bounceVel * c) * dt;
@@ -654,5 +764,6 @@ export class Claw {
     }
     this.cable.rotation.z = this.head.rotation.z * 0.5;
     this.cable.rotation.x = this.head.rotation.x * 0.5;
+    this.cableBeads?.rotation.copy(this.cable.rotation);
   }
 }

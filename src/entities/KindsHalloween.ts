@@ -1,0 +1,152 @@
+import RAPIER from '@dimforge/rapier3d-compat';
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { plastic } from '../scene/Materials';
+import type { KindDef } from './Collectible';
+
+/** Pickups for the Spooky Night islands. Same contract as the base catalog in Collectible.ts. */
+
+function sh<T extends THREE.Mesh>(m: T): T {
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh => {
+  const m = sh(new THREE.Mesh(geo, mat));
+  m.position.set(x, y, z);
+  return m;
+};
+const group = (...parts: THREE.Object3D[]): THREE.Group => {
+  const g = new THREE.Group();
+  g.add(...parts);
+  return g;
+};
+const glow = (hex: number, i = 1.2) => plastic(hex, { emissive: hex, emissiveIntensity: i, roughness: 0.4 });
+const INK = 0x2a2230;
+
+/** Two dot eyes and a little smile on the +Z face, centred at (0, y, z). */
+function cuteFace(y: number, z: number, scale = 1): THREE.Group {
+  const ink = plastic(INK, { roughness: 0.4 });
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.018 * scale, 8, 6), ink, s * 0.04 * scale, y, z));
+  const smile = mesh(new THREE.TorusGeometry(0.018 * scale, 0.006 * scale, 6, 12, Math.PI), ink, 0, y - 0.025 * scale, z);
+  smile.rotation.z = Math.PI;
+  g.add(smile);
+  for (const s of [-1, 1]) {
+    const blush = mesh(new THREE.SphereGeometry(0.014 * scale, 8, 6), plastic(0xff9fb0, { roughness: 0.5 }), s * 0.068 * scale, y - 0.018 * scale, z - 0.004);
+    blush.scale.z = 0.4;
+    g.add(blush);
+  }
+  return g;
+}
+
+export const SPOOKY_KINDS: Record<string, KindDef> = {
+  candycorn: {
+    name: 'Candy Corn', mass: 0.25, grip: 0.55, top: 0.16, bottom: 0.1,
+    buildMesh() {
+      const g = new THREE.Group();
+      const bands: [number, number, number, number][] = [
+        [0.13, 0.11, 0.07, 0xfff6ea], [0.11, 0.075, 0.08, 0xff9a3c], [0.075, 0.0, 0.1, 0xffd23f],
+      ];
+      let y = -0.1;
+      for (const [r0, r1, h, c] of bands) {
+        const seg = mesh(new THREE.CylinderGeometry(r1, r0, h, 3), plastic(c, { roughness: 0.35 }), 0, y + h / 2, 0);
+        seg.scale.z = 0.55;
+        g.add(seg);
+        y += h;
+      }
+      g.add(cuteFace(-0.02, 0.06, 1));
+      return g;
+    },
+    collider: () => RAPIER.ColliderDesc.cuboid(0.12, 0.13, 0.06),
+  },
+  tombstone: {
+    name: 'Tombstone', mass: 0.5, grip: 0.6, top: 0.2, bottom: 0.2,
+    buildMesh() {
+      const stone = plastic(0xa9a3c4, { roughness: 0.85 });
+      const slab = mesh(new RoundedBoxGeometry(0.26, 0.28, 0.08, 3, 0.03), stone, 0, -0.04, 0);
+      const top = mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.08, 20, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2), stone, 0, 0.1, 0);
+      const rip = mesh(new THREE.BoxGeometry(0.12, 0.025, 0.01), plastic(0x6b6488), 0, 0.04, 0.042);
+      const moss = mesh(new THREE.SphereGeometry(0.05, 8, 6), plastic(0x8ff0c0, { roughness: 0.8 }), 0.09, -0.16, 0.03);
+      moss.scale.y = 0.4;
+      return group(slab, top, rip, moss, cuteFace(-0.03, 0.042, 1));
+    },
+    collider: () => RAPIER.ColliderDesc.cuboid(0.13, 0.2, 0.04),
+  },
+  eyeball: {
+    name: 'Eyeball', mass: 0.3, grip: 0.55, top: 0.13, bottom: 0.13,
+    buildMesh() {
+      const white = mesh(new THREE.SphereGeometry(0.13, 20, 16), plastic(0xfffaf6, { roughness: 0.25 }));
+      const iris = mesh(new THREE.SphereGeometry(0.065, 16, 12), plastic(0x8ff0c0, { roughness: 0.2 }), 0, 0.02, 0.1);
+      iris.scale.z = 0.5;
+      const pupil = mesh(new THREE.SphereGeometry(0.035, 12, 8), plastic(INK, { roughness: 0.2 }), 0, 0.02, 0.125);
+      pupil.scale.z = 0.4;
+      const shine = mesh(new THREE.SphereGeometry(0.014, 8, 6), plastic(0xffffff), 0.02, 0.045, 0.135);
+      const g = group(white, iris, pupil, shine);
+      const vein = plastic(0xff7f9e, { roughness: 0.5 });
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + 0.4;
+        const v = mesh(new THREE.TorusGeometry(0.128, 0.004, 4, 16, 0.6), vein);
+        v.rotation.set(Math.PI / 2, a, 0);
+        g.add(v);
+      }
+      return g;
+    },
+    collider: () => RAPIER.ColliderDesc.ball(0.13),
+  },
+  coffin: {
+    name: 'Coffin', mass: 0.55, grip: 0.55, top: 0.08, bottom: 0.08,
+    buildMesh() {
+      const s = new THREE.Shape();
+      s.moveTo(0, 0.24);
+      s.lineTo(0.09, 0.16);
+      s.lineTo(0.06, -0.24);
+      s.lineTo(-0.06, -0.24);
+      s.lineTo(-0.09, 0.16);
+      s.closePath();
+      const geo = new THREE.ExtrudeGeometry(s, { depth: 0.1, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.015, bevelSegments: 2 });
+      geo.center();
+      geo.rotateX(-Math.PI / 2);
+      const box = mesh(geo, plastic(0x6b3f5a, { roughness: 0.6 }));
+      const lid = mesh(new THREE.BoxGeometry(0.03, 0.01, 0.2), plastic(0xffd23f, { roughness: 0.3, metalness: 0.4 }), 0, 0.068, -0.04);
+      const bar = mesh(new THREE.BoxGeometry(0.09, 0.01, 0.03), plastic(0xffd23f, { roughness: 0.3, metalness: 0.4 }), 0, 0.068, -0.08);
+      return group(box, lid, bar);
+    },
+    collider: () => RAPIER.ColliderDesc.cuboid(0.1, 0.07, 0.26),
+  },
+  potion: {
+    name: 'Potion', mass: 0.3, grip: 0.6, top: 0.21, bottom: 0.12,
+    buildMesh() {
+      const flask = mesh(new THREE.SphereGeometry(0.12, 18, 14), plastic(0xd9f7ff, { roughness: 0.05, transparent: true, opacity: 0.45 }));
+      const brew = mesh(new THREE.SphereGeometry(0.105, 18, 14, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.65), glow(0xb48cff, 0.7));
+      const neck = mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.1, 12), plastic(0xd9f7ff, { roughness: 0.05, transparent: true, opacity: 0.5 }), 0, 0.14, 0);
+      const cork = mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.05, 12), plastic(0xc48a4e, { roughness: 0.8 }), 0, 0.2, 0);
+      const bubble = mesh(new THREE.SphereGeometry(0.02, 8, 6), glow(0xe6d6ff, 0.8), 0.03, 0.0, 0.07);
+      return group(flask, brew, neck, cork, bubble);
+    },
+    collider: () => RAPIER.ColliderDesc.cylinder(0.165, 0.12).setTranslation(0, 0.045, 0),
+  },
+  cauldron: {
+    name: 'Cauldron', mass: 0.55, grip: 0.55, top: 0.16, bottom: 0.12,
+    buildMesh() {
+      const iron = plastic(0x3a3346, { roughness: 0.4, metalness: 0.3 });
+      const pot = mesh(new THREE.SphereGeometry(0.15, 18, 14, 0, Math.PI * 2, Math.PI * 0.25, Math.PI * 0.75), iron);
+      const rim = mesh(new THREE.TorusGeometry(0.11, 0.025, 10, 24), iron, 0, 0.1, 0);
+      rim.rotation.x = Math.PI / 2;
+      const brew = mesh(new THREE.CircleGeometry(0.1, 20), glow(0x8ff0c0, 0.9), 0, 0.095, 0);
+      brew.rotation.x = -Math.PI / 2;
+      const g = group(pot, rim, brew);
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        g.add(mesh(new THREE.CylinderGeometry(0.02, 0.015, 0.06, 8), iron, Math.cos(a) * 0.09, -0.15, Math.sin(a) * 0.09));
+      }
+      g.add(mesh(new THREE.SphereGeometry(0.025, 8, 6), glow(0xd9fff0, 0.8), 0.03, 0.12, 0.02));
+      return g;
+    },
+    collider: () => RAPIER.ColliderDesc.cylinder(0.14, 0.15),
+  },
+};
+
+export const SPOOKY_EMOJI: Record<string, string> = {
+  candycorn: '🍬', tombstone: '🪦', eyeball: '👁️', coffin: '⚰️', potion: '🧪', cauldron: '🫕',
+};

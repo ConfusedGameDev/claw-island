@@ -32,7 +32,7 @@ export class Crab extends Critter {
       : undefined;
     super(scene, phys, start, rng, level, region, variant === 'diamond'
       ? {
-        kind: 'diamondcrab', name: 'Diamond Crab', def: { top: 0.2, bottom: 0.13, grip: 0.75 },
+        kind: 'diamondcrab', name: level.specialName ?? 'Diamond Crab', def: { top: 0.2, bottom: 0.13, grip: 0.75 },
         bodyY: 0.13, walkSpeed: 0.3, fleeSpeed: 0.9, radius: 0.2, escapeAfter: 4.5, idleTime: [1.0, 2.5], isTarget: true, headingOffset: Math.PI / 2, groundY,
       }
       : {
@@ -43,20 +43,29 @@ export class Crab extends Critter {
   }
 
   /** Build geometry for the HUD icon without a physics body. */
-  static buildIconMesh(variant: CrabVariant): THREE.Group {
+  static buildIconMesh(variant: CrabVariant, skin?: LevelDef['critterSkin']): THREE.Group {
     const g = new THREE.Group();
     const proto = Object.create(Crab.prototype) as Crab;
     (proto as unknown as { variant: CrabVariant }).variant = variant;
+    (proto as unknown as { level: Partial<LevelDef> }).level = { critterSkin: skin };
     g.add(proto.buildMesh());
     return g;
   }
 
   protected buildMesh(): THREE.Object3D {
     const diamond = this.variant === 'diamond';
+    const skeleton = this.level?.critterSkin === 'skeleton';
+    // Spooky: ivory skeleton crabs, and a glowing mint spirit crab in place of the diamond one.
     const shellMat = diamond
-      ? plastic(0xf2fdff, { roughness: 0.1, metalness: 0.1, emissive: 0x5fdcff, emissiveIntensity: 0.5, flat: true })
-      : plastic(0xff5a3c, { roughness: 0.45 });
-    const limbMat = diamond ? plastic(0xbff3ff, { roughness: 0.15, emissive: 0x3fc6f0, emissiveIntensity: 0.45 }) : plastic(0xe8472c, { roughness: 0.5 });
+      ? skeleton
+        ? plastic(0xe6fff4, { roughness: 0.1, metalness: 0.1, emissive: 0x3fbf8a, emissiveIntensity: 0.7, flat: true })
+        : plastic(0xf2fdff, { roughness: 0.1, metalness: 0.1, emissive: 0x5fdcff, emissiveIntensity: 0.5, flat: true })
+      : plastic(skeleton ? 0xfff1dc : 0xff5a3c, { roughness: 0.45 });
+    const limbMat = diamond
+      ? skeleton
+        ? plastic(0xc9ffe6, { roughness: 0.15, emissive: 0x3fbf8a, emissiveIntensity: 0.55 })
+        : plastic(0xbff3ff, { roughness: 0.15, emissive: 0x3fc6f0, emissiveIntensity: 0.45 })
+      : plastic(skeleton ? 0xd9c4a3 : 0xe8472c, { roughness: 0.5 });
     const black = plastic(0x222233, { roughness: 0.4 });
     const root = new THREE.Group();
     this.shell = new THREE.Group();
@@ -66,6 +75,16 @@ export class Crab extends Critter {
     body.scale.set(1.35, 0.6, 1.0);
     body.castShadow = true;
     this.shell.add(body);
+    if (skeleton && !diamond) {
+      const rib = plastic(0x6b5a7a, { roughness: 0.6 });
+      for (const x of [-0.08, 0, 0.08]) {
+        const r = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.008, 4, 16, Math.PI), rib);
+        r.rotation.y = Math.PI / 2;
+        r.position.set(x, 0.01, 0);
+        r.scale.set(1.3, 1.05, 1);
+        this.shell.add(r);
+      }
+    }
     // Eye stalks at the front (+Z)
     this.eyes = [];
     for (const side of [-1, 1]) {

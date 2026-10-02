@@ -9,9 +9,9 @@ export const LAGOON_WATER_Y = -0.12;
  * Basin profile: height at a normalised radius (1 = rim). Flat floor, a
  * smooth wall, then a raised stone border between 1.0 and 1.3.
  */
-export function lagoonProfile(rn: number): number {
+export function lagoonProfile(rn: number, depth = LAGOON_DEPTH): number {
   const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-  if (rn <= 1.0) return -LAGOON_DEPTH * (1 - smooth(0.78, 1.0, rn));
+  if (rn <= 1.0) return -depth * (1 - smooth(0.78, 1.0, rn));
   if (rn <= 1.3) return 0.12 * (smooth(1.0, 1.06, rn) - smooth(1.22, 1.3, rn));
   return 0;
 }

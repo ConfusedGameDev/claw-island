@@ -11,6 +11,6 @@ export const LAYOUT = {
     railY: 4.2, restY: 3.3, postX: 3.9, postZ: 3.0,
   },
   SPAWN: { hx: 3.0, hz: 2.2 },
-  WATER: { x: -4.15, z: 3.15, rx: 0.55, rz: 0.42 },
+  WATER: { x: -4.1, z: 3.05, rx: 0.42, rz: 0.34 },
   KILL_Y: -4,
 } as const;

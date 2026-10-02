@@ -3,12 +3,12 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PAL, plastic, toon } from './Materials';
 import { LAYOUT } from '../game/Layout';
-import { LAGOON_DEPTH, LAGOON_WATER_Y, lagoonProfile, type LevelDef, type ThemeDef } from '../game/Levels';
+import { LAGOON_DEPTH, lagoonProfile, type LevelDef, type ThemeDef } from '../game/Levels';
 import { PhysicsWorld, FLOOR_GROUPS } from '../physics/PhysicsWorld';
 import { mulberry32, randRange } from '../util/math';
 import { createWaterMaterial } from './Water';
 
-interface Ripple { mesh: THREE.Mesh; phase: number }
+interface Pool { x: number; z: number; rx: number; rz: number; depth: number; kind: 'water' | 'lava' | 'ice' }
 interface Island { group: THREE.Group; baseY: number; phase: number }
 
 /**
@@ -17,7 +17,6 @@ interface Island { group: THREE.Group; baseY: number; phase: number }
  */
 export class Diorama {
   readonly root = new THREE.Group();
-  private ripples: Ripple[] = [];
   private islands: Island[] = [];
   private lava: THREE.MeshStandardMaterial | null = null;
   /** Static geometry collected per material and merged into one mesh each. */
@@ -25,6 +24,18 @@ export class Diorama {
   private rng: () => number;
   private theme: ThemeDef;
   private origin: THREE.Vector3;
+
+  /** Every pool on this island (island-local). All pools are carved into the slab. */
+  private pools(): Pool[] {
+    const out: Pool[] = [];
+    const L = this.level.lagoon;
+    if (L) out.push({ ...L, depth: LAGOON_DEPTH, kind: 'water' });
+    if (this.theme.pond !== 'none') {
+      const W = LAYOUT.WATER;
+      out.push({ x: W.x, z: W.z, rx: W.rx, rz: W.rz, depth: 0.2, kind: this.theme.pond });
+    }
+    return out;
+  }
 
   constructor(scene: THREE.Scene, private phys: PhysicsWorld, private level: LevelDef) {
     this.theme = level.theme;
@@ -37,10 +48,9 @@ export class Diorama {
     this.buildFenceWalls();
     this.buildFence();
     this.buildGrass();
-    this.buildPond();
     this.buildGantryFrame();
     this.buildSign();
-    this.buildLagoon();
+    for (const pool of this.pools()) this.buildPool(pool);
     this.buildFloatingIslands();
     this.flush(this.batch, this.root);
   }
@@ -79,11 +89,6 @@ export class Diorama {
 
   update(dt: number, t: number): void {
     void dt;
-    for (const r of this.ripples) {
-      const k = ((t * 0.5 + r.phase) % 1 + 1) % 1;
-      r.mesh.scale.setScalar(0.4 + k * 1.6);
-      (r.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - k) * 0.6;
-    }
     for (const i of this.islands) {
       i.group.position.y = i.baseY + Math.sin(t * 0.5 + i.phase) * 0.08;
     }
@@ -122,10 +127,9 @@ export class Diorama {
     const T = this.theme;
     const shape = this.roundedRect(SLAB.hx, SLAB.hz, SLAB.corner);
     shape.holes.push(this.squareHole(HOLE.x, HOLE.z, HOLE.half));
-    const L = this.level.lagoon;
-    if (L) {
+    for (const pool of this.pools()) {
       const e = new THREE.Path();
-      e.absellipse(L.x, -L.z, L.rx, L.rz, 0, Math.PI * 2, false, 0);
+      e.absellipse(pool.x, -pool.z, pool.rx, pool.rz, 0, Math.PI * 2, false, 0);
       shape.holes.push(e);
     }
 
@@ -303,21 +307,15 @@ export class Diorama {
   }
 
   private blocked(x: number, z: number): boolean {
-    const { HOLE, BUTTON, WATER, GANTRY } = LAYOUT;
+    const { HOLE, BUTTON, GANTRY } = LAYOUT;
     const b = this.level.button;
     if (Math.abs(x - HOLE.x) < HOLE.half + 0.2 && Math.abs(z - HOLE.z) < HOLE.half + 0.2) return true;
     if (Math.hypot(x - b.x, z - b.z) < BUTTON.radius + 0.2) return true;
-    if (this.theme.pond !== 'none') {
-      const wx = (x - WATER.x) / (WATER.rx + 0.12);
-      const wz = (z - WATER.z) / (WATER.rz + 0.12);
-      if (wx * wx + wz * wz < 1) return true;
-    }
     if (Math.abs(Math.abs(x) - GANTRY.postX) < 0.2 && Math.abs(Math.abs(z) - GANTRY.postZ) < 0.2) return true;
-    const L = this.level.lagoon;
-    if (L) {
-      const lx = (x - L.x) / (L.rx + 0.55);
-      const lz = (z - L.z) / (L.rz + 0.55);
-      if (lx * lx + lz * lz < 1) return true;
+    for (const pool of this.pools()) {
+      const px = (x - pool.x) / (pool.rx + 0.5);
+      const pz = (z - pool.z) / (pool.rz + 0.5);
+      if (px * px + pz * pz < 1) return true;
     }
     return false;
   }
@@ -406,56 +404,13 @@ export class Diorama {
     this.root.add(stems, heads);
   }
 
-  // ------------------------------------------------------------------ pond
-  private buildPond(): void {
-    const { WATER } = LAYOUT;
+  /**
+   * Rule: every pool is carved. The slab has a hole for it (see buildPlatform),
+   * a bowl sits underneath, the surface floats below ground level, and a ring
+   * of stone blocks forms a raised rim.
+   */
+  private buildPool(pool: Pool): void {
     const T = this.theme;
-    if (T.pond === 'none') return;
-    const rim = new THREE.Mesh(new THREE.CircleGeometry(1, 28), plastic(T.dirt, { roughness: 0.85 }));
-    rim.rotation.x = -Math.PI / 2;
-    rim.position.set(WATER.x, 0.012, WATER.z);
-    rim.scale.set(WATER.rx + 0.1, WATER.rz + 0.1, 1);
-    this.bake(rim);
-    let mat: THREE.MeshStandardMaterial;
-    if (T.pond === 'lava') {
-      mat = new THREE.MeshStandardMaterial({ color: T.pondColor, emissive: T.pondEmissive ?? T.pondColor, emissiveIntensity: 1.2, roughness: 0.4 });
-      this.lava = mat;
-    } else if (T.pond === 'ice') {
-      mat = plastic(T.pondColor, { roughness: 0.08, metalness: 0.1 });
-    } else {
-      mat = createWaterMaterial(T.pondColor, 0x1f7fe8, 0.92, 3.0) as unknown as THREE.MeshStandardMaterial;
-    }
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(1, 28), mat);
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(WATER.x, 0.02, WATER.z);
-    pool.scale.set(WATER.rx, WATER.rz, 1);
-    pool.receiveShadow = true;
-    this.root.add(pool);
-    if (T.pond === 'water') {
-      const pad = new THREE.Mesh(new THREE.CircleGeometry(0.11, 12, 0.5, 5.4), toon(T.leaf));
-      pad.rotation.x = -Math.PI / 2;
-      pad.position.set(WATER.x + 0.22, 0.035, WATER.z - 0.1);
-      this.bake(pad);
-    }
-    if (T.pond === 'lava') {
-      // Glowing cracks radiating from the pool.
-      const crackMat = new THREE.MeshStandardMaterial({ color: 0xff8c1a, emissive: 0xff4a00, emissiveIntensity: 1.0 });
-      for (let i = 0; i < 5; i++) {
-        const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, randRange(this.rng, 0.3, 0.7)), crackMat);
-        const a = randRange(this.rng, 0, Math.PI * 2);
-        c.position.set(WATER.x + Math.cos(a) * 0.75, 0.01, WATER.z + Math.sin(a) * 0.6);
-        c.rotation.y = -a + Math.PI / 2;
-        this.bake(c);
-      }
-    }
-  }
-
-  /** A lagoon carved into the sand: bowl, water below ground level, stone border. */
-  private buildLagoon(): void {
-    const L = this.level.lagoon;
-    if (!L) return;
-    const T = this.theme;
-    // Bowl: rings of vertices from the center out to the rim, following the profile.
     const R = 14;
     const N = 56;
     const pos: number[] = [];
@@ -464,7 +419,7 @@ export class Diorama {
       const rn = k / R;
       for (let n = 0; n < N; n++) {
         const a = (n / N) * Math.PI * 2;
-        pos.push(L.x + Math.cos(a) * rn * L.rx, lagoonProfile(rn) - 0.004, L.z + Math.sin(a) * rn * L.rz);
+        pos.push(pool.x + Math.cos(a) * rn * pool.rx, lagoonProfile(rn, pool.depth) - 0.004, pool.z + Math.sin(a) * rn * pool.rz);
       }
     }
     for (let k = 0; k < R; k++) {
@@ -480,41 +435,69 @@ export class Diorama {
     bowlGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     bowlGeo.setIndex(idx);
     bowlGeo.computeVertexNormals();
-    this.bake(new THREE.Mesh(bowlGeo, plastic(T.dirt, { roughness: 0.85 })));
+    this.bake(new THREE.Mesh(bowlGeo, plastic(pool.kind === 'lava' ? T.dirtDark : T.dirt, { roughness: 0.85 })));
 
-    const water = new THREE.Mesh(new THREE.CircleGeometry(1, 56), createWaterMaterial(0x4fc3ff, 0x1f7fe8, 0.9, 2.0));
-    water.rotation.x = -Math.PI / 2;
-    water.position.set(L.x, LAGOON_WATER_Y, L.z);
-    water.scale.set(L.rx * 0.985, L.rz * 0.985, 1);
-    this.root.add(water);
+    let surface: THREE.Material;
+    if (pool.kind === 'lava') {
+      this.lava = new THREE.MeshStandardMaterial({ color: T.pondColor, emissive: T.pondEmissive ?? T.pondColor, emissiveIntensity: 1.2, roughness: 0.4 });
+      surface = this.lava;
+    } else if (pool.kind === 'ice') {
+      surface = plastic(T.pondColor, { roughness: 0.08, metalness: 0.1 });
+    } else {
+      surface = createWaterMaterial(0x4fc3ff, 0x1f7fe8, 0.9, pool.rx > 0.8 ? 2.0 : 3.2);
+    }
+    const surfaceY = -pool.depth * 0.38;
+    const top = new THREE.Mesh(new THREE.CircleGeometry(1, 56), surface);
+    top.rotation.x = -Math.PI / 2;
+    top.position.set(pool.x, surfaceY, pool.z);
+    top.scale.set(pool.rx * 0.985, pool.rz * 0.985, 1);
+    top.receiveShadow = pool.kind !== 'lava';
+    this.root.add(top);
+    if (pool.kind === 'water') {
+      const pad = new THREE.Mesh(new THREE.CircleGeometry(Math.min(0.11, pool.rx * 0.2), 12, 0.5, 5.4), toon(T.leaf));
+      pad.rotation.x = -Math.PI / 2;
+      pad.position.set(pool.x + pool.rx * 0.35, surfaceY + 0.012, pool.z - pool.rz * 0.2);
+      this.root.add(pad);
+    }
+    if (pool.kind === 'lava') {
+      const crackMat = new THREE.MeshStandardMaterial({ color: 0xff8c1a, emissive: 0xff4a00, emissiveIntensity: 1.0 });
+      for (let i = 0; i < 5; i++) {
+        const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, randRange(this.rng, 0.3, 0.6)), crackMat);
+        const a = randRange(this.rng, 0, Math.PI * 2);
+        c.position.set(pool.x + Math.cos(a) * (pool.rx * 1.5 + 0.2), 0.01, pool.z + Math.sin(a) * (pool.rz * 1.5 + 0.2));
+        c.rotation.y = -a + Math.PI / 2;
+        this.bake(c);
+      }
+    }
 
-    // Raised sandstone border: chunky blocks around the rim.
-    const light = plastic(0xe6bf86, { roughness: 0.8 });
-    const dark = plastic(0xd1a46a, { roughness: 0.8 });
-    const count = 26;
+    // Raised stone rim: chunky blocks around the edge.
+    const light = plastic(pool.kind === 'lava' ? 0x5a4d4d : T.woodLight, { roughness: 0.8 });
+    const dark = plastic(pool.kind === 'lava' ? 0x3b3238 : T.dirt, { roughness: 0.8 });
+    const rn = 1.16;
+    const circ = 2 * Math.PI * ((pool.rx + pool.rz) / 2) * rn;
+    const count = Math.max(10, Math.round(circ / 0.32));
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2;
-      const rn = 1.16;
-      const x = L.x + Math.cos(a) * rn * L.rx;
-      const z = L.z + Math.sin(a) * rn * L.rz;
-      const len = (2 * Math.PI * ((L.rx + L.rz) / 2) * rn) / count;
-      const block = new THREE.Mesh(new RoundedBoxGeometry(len * 1.02, 0.14, 0.26, 2, 0.04), i % 2 ? light : dark);
-      // Tangent direction of the ellipse at this angle.
-      const tx = -Math.sin(a) * L.rx;
-      const tz = Math.cos(a) * L.rz;
+      const x = pool.x + Math.cos(a) * rn * pool.rx;
+      const z = pool.z + Math.sin(a) * rn * pool.rz;
+      const len = circ / count;
+      const block = new THREE.Mesh(new RoundedBoxGeometry(len * 1.02, 0.14, Math.min(0.26, pool.rx * 0.3), 2, 0.04), i % 2 ? light : dark);
+      const tx = -Math.sin(a) * pool.rx;
+      const tz = Math.cos(a) * pool.rz;
       block.rotation.y = -Math.atan2(tz, tx);
       block.position.set(x, 0.07, z);
       block.scale.y = 0.9 + ((i * 7) % 3) * 0.08;
       this.bake(block);
     }
-    // A few shells on the border.
-    const shell = plastic(0xffe3c4, { roughness: 0.5 });
-    for (let i = 0; i < 4; i++) {
-      const a = randRange(this.rng, 0, Math.PI * 2);
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), shell);
-      m.scale.y = 0.5;
-      m.position.set(L.x + Math.cos(a) * 1.16 * L.rx, 0.16, L.z + Math.sin(a) * 1.16 * L.rz);
-      this.bake(m);
+    if (pool.kind === 'water') {
+      const shell = plastic(0xffe3c4, { roughness: 0.5 });
+      for (let i = 0; i < 3; i++) {
+        const a = randRange(this.rng, 0, Math.PI * 2);
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), shell);
+        m.scale.y = 0.5;
+        m.position.set(pool.x + Math.cos(a) * rn * pool.rx, 0.16, pool.z + Math.sin(a) * rn * pool.rz);
+        this.bake(m);
+      }
     }
   }
 

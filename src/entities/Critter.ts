@@ -99,6 +99,10 @@ export abstract class Critter implements Grabbable {
   protected stateT = 0;
   private target = { x: 0, z: 0 };
   private stateDur = 1;
+  private lastObstacles: Obstacle[] = [];
+  private progressT = 0;
+  private progressPos = new THREE.Vector2();
+  private stuckStrikes = 0;
   private fallVel = new THREE.Vector3();
   private fleeDir = new THREE.Vector2(1, 0);
   private readonly opts: CritterOpts;
@@ -192,15 +196,37 @@ export abstract class Critter implements Grabbable {
   }
 
   private pickTarget(): void {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 16; i++) {
       const p = this.region.random(this.rng);
       if (this.inHoleZone(p.x, p.z, 0.55)) continue;
       const mid = { x: (p.x + this.pos.x) / 2, z: (p.z + this.pos.z) / 2 };
       if (this.inHoleZone(mid.x, mid.z, 0.3)) continue;
+      // Don't aim at a spot that is currently occupied.
+      if (this.lastObstacles.some((o) => Math.hypot(p.x - o.x, p.z - o.z) < o.r + 0.1)) continue;
       this.target = p;
       return;
     }
     this.target = { x: this.pos.x, z: this.pos.z };
+  }
+
+  /** Give up on the current walk when no ground is being covered. */
+  private checkProgress(dt: number): void {
+    const moving = this.state === 'WANDER' || this.state === 'FLEE';
+    if (!moving) { this.progressT = 0; this.progressPos.set(this.pos.x, this.pos.z); return; }
+    this.progressT += dt;
+    if (this.progressT < 0.8) return;
+    const moved = Math.hypot(this.pos.x - this.progressPos.x, this.pos.z - this.progressPos.y);
+    this.progressT = 0;
+    this.progressPos.set(this.pos.x, this.pos.z);
+    if (moved < 0.1) {
+      this.stuckStrikes++;
+      // Turn away and pick somewhere new; after repeated strikes just rest a moment.
+      this.heading += Math.PI * (0.5 + this.rng() * 0.5);
+      this.enter(this.stuckStrikes >= 3 ? 'IDLE' : 'WANDER');
+      if (this.stuckStrikes >= 3) this.stuckStrikes = 0;
+    } else {
+      this.stuckStrikes = 0;
+    }
   }
 
   /** Physics substep: drives the kinematic body. */
@@ -208,6 +234,7 @@ export abstract class Critter implements Grabbable {
     if (this.removed || this.state === 'HELD' || this.state === 'GONE') return;
     this.stateT += dt;
     const o = this.opts;
+    this.lastObstacles = obstacles;
 
     const clawDist = Math.hypot(this.pos.x - clawXZ.x, this.pos.z - clawXZ.z);
     if (clawDescending && clawDist < 0.7 && this.state !== 'FALLING' && this.state !== 'FREEZE') this.enter('FREEZE');
@@ -238,9 +265,25 @@ export abstract class Critter implements Grabbable {
           dx = this.target.x - this.pos.x;
           dz = this.target.z - this.pos.z;
           const dist = Math.hypot(dx, dz);
-          if (dist < 0.12) { this.enter('IDLE'); break; }
+          if (dist < 0.12 || this.stateT > 7) { this.enter('IDLE'); break; }
           dx /= dist;
           dz /= dist;
+          // Steer around whatever is directly ahead instead of walking into it.
+          for (const ob of obstacles) {
+            const ox = ob.x - this.pos.x;
+            const oz = ob.z - this.pos.z;
+            const d = Math.hypot(ox, oz);
+            if (d > ob.r + 0.35 || d < 1e-4) continue;
+            const ahead = (ox * dx + oz * dz) / d;
+            if (ahead < 0.3) continue;
+            const side = (ox * dz - oz * dx) > 0 ? -1 : 1;
+            const w = 1 - Math.max(0, d - ob.r) / 0.35;
+            dx += -dz * side * w * 1.4;
+            dz += dx * side * w * 1.4;
+            const l = Math.hypot(dx, dz) || 1;
+            dx /= l;
+            dz /= l;
+          }
         }
         const want = Math.atan2(dx, dz);
         let diff = want - this.heading;
@@ -301,6 +344,7 @@ export abstract class Critter implements Grabbable {
       this.pos.y = this.groundAt(this.pos.x, this.pos.z);
     }
 
+    this.checkProgress(dt);
     this.body.setNextKinematicTranslation(this.pos);
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.heading + (o.headingOffset ?? 0));
     this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });

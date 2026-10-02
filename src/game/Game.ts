@@ -16,7 +16,7 @@ import { tickWater } from '../scene/Water';
 import {
   COLLECTIBLE_KINDS, PICKUP_KINDS, Collectible, EMOJI_FALLBACK, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
 } from '../entities/Collectible';
-import { Hud, type PieceReward } from '../ui/Hud';
+import { Hud, type PauseMonster, type PieceReward } from '../ui/Hud';
 import { Input } from './Input';
 import { Sfx } from '../audio/Sfx';
 import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
@@ -92,6 +92,7 @@ export class Game {
   /** Spooky campaign: body pieces won so far this run. */
   pieces: MonsterBuild = {};
   private portrait: MonsterPortrait | null = null;
+  paused = false;
 
   constructor(canvas: HTMLCanvasElement, readonly campaign: Campaign) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -130,6 +131,7 @@ export class Game {
     this.postfx = new PostFX(this.renderer, this.scene, this.camera);
     this.input = new Input();
     this.hud = new Hud(this.input);
+    this.hud.onPause = () => this.pause();
     this.input.onFirstGesture = () => this.sfx.unlock();
     this.icons = renderIcons([
       ...PICKUP_KINDS.map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
@@ -180,6 +182,10 @@ export class Game {
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return;
+      if (e.code === 'Escape') {
+        if (this.paused) this.resume();
+        else this.pause();
+      }
       if (e.code === 'KeyP') this.toggleDebug();
       if (e.code === 'KeyM') this.sfx.muted = !this.sfx.muted;
     });
@@ -232,7 +238,8 @@ export class Game {
     }
     for (const p of this.particles) this.scene.remove(p.mesh);
     this.particles = [];
-    this.results = [];
+    // Keep scores of the islands before this one (restart / jump back keeps earlier totals).
+    this.results = this.results.filter((r) => r.level.index < levelIndex);
     this.bridges.forEach((b, i) => b.setExtension(i < levelIndex ? 1 : 0));
     this.currentLevel = levelIndex;
     const def = this.cur.def;
@@ -365,17 +372,75 @@ export class Game {
 
   private startRun(): void {
     if (this.phase !== 'INTRO') return;
+    // A new game starts a new monster; a resumed one keeps its pieces.
+    if (this.campaign.rewardsPieces && this.currentLevel === 0) this.pieces = {};
+    this.startLevel();
+  }
+
+  /** Begin play on the island `prepare()` just set up. */
+  private startLevel(): void {
+    this.paused = false;
     this.hud.hideOverlay();
     this.input.consumeDrop();
     this.saveProgress(this.currentLevel);
     if (this.campaign.rewardsPieces) {
-      // A new game starts a new monster; a resumed one keeps its pieces and
-      // fills any slots it is missing for islands already cleared.
-      if (this.currentLevel === 0) this.pieces = {};
+      // Fill any slots missing for islands already cleared (old saves, jumps).
       SLOTS.slice(0, this.currentLevel).forEach((slot) => { this.pieces[slot] ??= rollPiece(Math.random); });
       this.savePieces();
     }
     this.setPhase('PHASE_WEIGHT');
+  }
+
+  // ------------------------------------------------------------------ pause
+  private canPause(): boolean {
+    return !this.paused && (this.phase === 'PHASE_WEIGHT' || this.phase === 'HOLE_OPENING' || this.phase === 'PHASE_COLLECT');
+  }
+
+  /** Highest island the player may jump to. */
+  private maxUnlocked(): number {
+    return Math.max(this.loadProgress(), this.currentLevel);
+  }
+
+  pause(): void {
+    if (!this.canPause()) return;
+    this.paused = true;
+    this.input.consumeDrop();
+    let monster: PauseMonster | undefined;
+    if (this.campaign.rewardsPieces) {
+      this.portrait ??= new MonsterPortrait();
+      const img = this.portrait.render(this.pieces, 300);
+      const owned = SLOTS.filter((s) => this.pieces[s]);
+      monster = {
+        image: img?.toDataURL('image/png') ?? null,
+        filled: owned.length,
+        total: SLOTS.length,
+        parts: owned.map((s) => `${MONSTERS[this.pieces[s]!].emoji} ${pieceLabel(s, this.pieces[s]!)}`),
+      };
+    }
+    const unlocked = this.maxUnlocked();
+    this.hud.showPause({
+      current: this.currentLevel,
+      levels: this.levelDefs.map((d) => ({ index: d.index, name: d.name, unlocked: d.index <= unlocked })),
+      monster,
+      onResume: () => this.resume(),
+      onRestart: () => this.jumpTo(this.currentLevel),
+      onJump: (i) => this.jumpTo(i),
+    });
+  }
+
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.hud.hideOverlay();
+    this.input.consumeDrop();
+    this.input.consumeAny();
+  }
+
+  /** Restart the current island, or replay any unlocked one, with a fresh layout. */
+  private jumpTo(index: number): void {
+    if (index < 0 || index > this.maxUnlocked()) return;
+    this.prepare(index);
+    this.startLevel();
   }
 
   // ---------------------------------------------------------------- monster
@@ -595,7 +660,15 @@ export class Game {
   frame(now: number): void {
     const dt = Math.min(0.1, (now - (this.lastNow || now)) / 1000);
     this.lastNow = now;
+    if (this.paused) {
+      // Frozen: swallow input and keep drawing the still scene behind the menu.
+      this.input.consumeDrop();
+      this.input.consumeAny();
+      this.postfx.render();
+      return;
+    }
     this.time += dt;
+    this.hud.setPauseVisible(this.canPause());
 
     if (this.phase === 'INTRO' && this.input.consumeAny()) this.startRun();
     if (this.phase === 'RESULTS' && this.input.consumeDrop()) this.continueFromResults();

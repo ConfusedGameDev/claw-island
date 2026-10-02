@@ -483,3 +483,41 @@ body.halloween .panel::after { right: 0; transform: scaleX(-1); }
 body.halloween .star.lit { color: var(--gold); }
 body.halloween .star { color: #c9b8e6; }
 body.halloween .mini-stars i { color: #c9b8e6; }
+
+/* ---------- pause ---------- */
+.pause-btn {
+  pointer-events: auto;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+  padding: 6px 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+.pause-btn:active { transform: translateY(3px); }
+@media (pointer: coarse) { .pause-btn { min-width: 44px; min-height: 44px; justify-content: center; } }
+.panel.pause { width: min(94vw, 480px); }
+.panel.pause .title { margin-bottom: 6px; }
+.pause-monster { margin-top: 10px; }
+.pause-monster .parts { justify-content: flex-start; margin-top: 4px; font-size: 11px; }
+.big-btn.small { font-size: 17px; padding: 7px 20px; }
+.grid-title { font-weight: 700; font-size: 14px; color: var(--ink-soft); margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 1px; }
+.level-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.level-btn {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  padding: 7px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: var(--cream-2);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.level-btn b { color: var(--accent); margin-right: 4px; }
+.level-btn.current { background: var(--gold); box-shadow: 0 3px 0 var(--ink); }
+.level-btn.locked { opacity: 0.45; cursor: not-allowed; }
+.level-btn:not(.locked):active { transform: translateY(2px); }

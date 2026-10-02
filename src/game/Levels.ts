@@ -36,7 +36,8 @@ export interface ThemeDef {
   pond: 'water' | 'lava' | 'goo' | 'ice' | 'none';
   pondColor: number;
   pondEmissive?: number;
-  tree: 'blob' | 'palm' | 'pine' | 'spire' | 'lollipop' | 'smokestack' | 'cactus' | 'deadtree' | 'pylon' | 'cloudpuff';
+  tree: 'blob' | 'palm' | 'pine' | 'spire' | 'lollipop' | 'smokestack' | 'cactus' | 'deadtree' | 'pylon' | 'cloudpuff'
+    | 'jackolantern' | 'tombstone' | 'mushroom' | 'obelisk';
   floorFriction: number;
   /** Bounciness of the floor (combined with objects using the max). */
   floorRestitution?: number;
@@ -45,7 +46,14 @@ export interface ThemeDef {
   /** Multiplier on the lights while on this island. */
   light: number;
   /** A building on the big floating islet beside the island. */
-  landmark?: 'house' | 'factory' | 'pyramid' | 'tower' | 'castle' | 'gingerbread';
+  landmark?: 'house' | 'factory' | 'pyramid' | 'tower' | 'castle' | 'gingerbread'
+    | 'scarecrow' | 'chapel' | 'crypt' | 'cauldron' | 'vampcastle' | 'witchhut';
+  /** Gantry frame style (default plastic). */
+  gantry?: 'plastic' | 'bone';
+  /** Fence style around the play area (default wooden picket). */
+  fence?: 'picket' | 'iron' | 'bone';
+  /** Small props scattered on the slab rim and floating islets. */
+  decor?: 'tombstones' | 'candles' | 'pumpkins' | 'mushrooms' | 'bones';
 }
 
 export interface ConveyorDef {
@@ -79,9 +87,13 @@ export interface LevelDef {
   /** Black cuccos that charge the claw when a white one is lifted. */
   guards?: number;
   /** A lagoon inside the fence (island-local). Home of the diamond crab. */
-  lagoon?: { x: number; z: number; rx: number; rz: number };
+  lagoon?: { x: number; z: number; rx: number; rz: number; kind?: 'water' | 'goo' };
   /** A guaranteed special target creature. */
   special?: 'diamondcrab' | 'crownghost';
+  /** Display name override for the special target. */
+  specialName?: string;
+  /** Costume for the island's critters (spooky campaign). */
+  critterSkin?: 'pumpkin' | 'skeleton';
   /** Multiplies every object's grip tolerance (lower = stricter). */
   gripScale: number;
   /** Island-local positions. */
@@ -196,7 +208,7 @@ const HAUNTED = ['pumpkin', 'skull', 'bat', 'slime', 'candle', 'bomb'];
 const FUTURE = ['gear', 'bolt', 'battery', 'robot', 'crate', 'coin'];
 const CLOUD = ['star', 'heart', 'rupee', 'feather', 'coin', 'shell'];
 
-type LevelSpec = Omit<LevelDef, 'index' | 'origin'>;
+export type LevelSpec = Omit<LevelDef, 'index' | 'origin'>;
 const SPECS: LevelSpec[] = [
   { name: 'Meadow', theme: THEMES.meadow, targets: 3, decoys: 11, critter: 'chicken', critters: 3, guards: 1, gripScale: 1.0, button: { x: 2.4, z: 1.6 }, weight: { x: 0, z: 1.7 } },
   { name: 'Beach', theme: THEMES.beach, targets: 3, decoys: 13, critter: 'crab', critters: 4, gripScale: 1.0, button: { x: -2.6, z: -1.9 }, weight: { x: 2.2, z: 1.9 }, lagoon: { x: -1.6, z: 1.3, rx: 1.15, rz: 0.85 }, special: 'diamondcrab' },
@@ -218,4 +230,6 @@ const SPECS: LevelSpec[] = [
   { name: 'Cloud Kingdom', theme: THEMES.cloud, pool: CLOUD, targets: 4, decoys: 16, critter: 'chicken', critters: 3, guards: 1, gripScale: 1.0, button: { x: 2.6, z: -1.8 }, weight: { x: -2.4, z: 1.9 }, gravityScale: 0.35, hint: 'Low gravity: things float down slowly.' },
 ];
 
-export const LEVELS: LevelDef[] = SPECS.map((spec, index) => ({ ...spec, index, origin: levelOrigin(index) }));
+/** The original ten islands (the classic campaign). */
+export const CLASSIC_LEVELS: LevelDef[] = SPECS.map((spec, index) => ({ ...spec, index, origin: levelOrigin(index) }));
+export const LEVELS = CLASSIC_LEVELS;

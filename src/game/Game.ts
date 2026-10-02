@@ -16,12 +16,15 @@ import { tickWater } from '../scene/Water';
 import {
   COLLECTIBLE_KINDS, PICKUP_KINDS, Collectible, EMOJI_FALLBACK, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
 } from '../entities/Collectible';
-import { Hud } from '../ui/Hud';
+import { Hud, type PieceReward } from '../ui/Hud';
 import { Input } from './Input';
 import { Sfx } from '../audio/Sfx';
 import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
 import { LAYOUT } from './Layout';
-import { LEVELS, type LevelDef } from './Levels';
+import { type LevelDef } from './Levels';
+import { type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
+import { MONSTERS, MonsterPortrait, SLOTS, monsterName, pieceLabel, rollPiece, type MonsterBuild } from './Monster';
+import { composeCard, downloadCard, shareCard } from '../ui/Share';
 import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle, windValue } from '../util/math';
 
 export type Phase = 'INTRO' | 'PHASE_WEIGHT' | 'HOLE_OPENING' | 'PHASE_COLLECT' | 'RESULTS' | 'TRAVEL' | 'FINAL';
@@ -42,11 +45,10 @@ interface LevelRuntime {
 }
 
 const SPECIAL_NAMES: Record<string, string> = { diamondcrab: 'Diamond Crab', crownghost: 'Ghost King' };
+const PIECES_SUFFIX = '.monster';
 
 export interface LevelResult { level: LevelDef; breakdown: ScoreBreakdown; stats: RunStats }
 
-const BEST_KEY = 'clawisland.best';
-const PROGRESS_KEY = 'clawisland.progress';
 const BRIDGE_TIME = 0.8;
 const RIDE_TIME = 3.0;
 
@@ -87,8 +89,11 @@ export class Game {
   private debugLines: THREE.LineSegments | null = null;
   private debugOn = false;
   private rng: () => number = Math.random;
+  /** Spooky campaign: body pieces won so far this run. */
+  pieces: MonsterBuild = {};
+  private portrait: MonsterPortrait | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, readonly campaign: Campaign) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.matchMedia('(pointer: coarse)').matches ? 1.5 : 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -104,8 +109,8 @@ export class Game {
     this.applyCameraLayout();
 
     this.phys = new PhysicsWorld();
-    this.env = new Environment(this.scene);
-    for (const def of LEVELS) {
+    this.env = new Environment(this.scene, campaign.look === 'bone');
+    for (const def of this.levelDefs) {
       this.levels.push({
         def,
         diorama: new Diorama(this.scene, this.phys, def),
@@ -118,17 +123,17 @@ export class Game {
         feedT: 0,
       });
     }
-    for (let i = 0; i < LEVELS.length - 1; i++) {
-      this.bridges.push(new RailBridge(this.scene, LEVELS[i].origin, LEVELS[i + 1].origin));
+    for (let i = 0; i < this.levelDefs.length - 1; i++) {
+      this.bridges.push(new RailBridge(this.scene, this.levelDefs[i].origin, this.levelDefs[i + 1].origin, campaign.look));
     }
-    this.claw = new Claw(this.scene, this.phys);
+    this.claw = new Claw(this.scene, this.phys, campaign.look);
     this.postfx = new PostFX(this.renderer, this.scene, this.camera);
     this.input = new Input();
     this.hud = new Hud(this.input);
     this.input.onFirstGesture = () => this.sfx.unlock();
     this.icons = renderIcons([
       ...PICKUP_KINDS.map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
-      { key: 'diamondcrab', build: () => Crab.buildIconMesh('diamond') },
+      { key: 'diamondcrab', build: () => Crab.buildIconMesh('diamond', this.levelDefs.find((l) => l.special === 'diamondcrab')?.critterSkin) },
       { key: 'crownghost', build: () => Ghost.buildIconMesh('crown') },
     ]);
 
@@ -174,12 +179,17 @@ export class Game {
 
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('keydown', (e) => {
+      if (e.target instanceof HTMLInputElement) return;
       if (e.code === 'KeyP') this.toggleDebug();
       if (e.code === 'KeyM') this.sfx.muted = !this.sfx.muted;
     });
 
     const urlSeed = new URLSearchParams(location.search).get('seed');
     this.reset(urlSeed ? Number(urlSeed) >>> 0 : undefined);
+  }
+
+  get levelDefs(): LevelDef[] {
+    return this.campaign.levels;
   }
 
   get cur(): LevelRuntime {
@@ -192,9 +202,16 @@ export class Game {
     this.prepare(0, seed);
     this.setPhase('INTRO');
     const saved = this.loadProgress();
+    this.pieces = this.loadPieces();
     this.hud.showIntro(
+      this.campaign,
       () => this.startRun(),
-      saved > 0 ? { level: LEVELS[saved], onResume: () => { this.prepare(saved, this.seed); this.startRun(); } } : undefined,
+      saved > 0 ? {
+        level: this.levelDefs[saved],
+        pieces: Object.keys(this.pieces).length,
+        onResume: () => { this.prepare(saved, this.seed); this.startRun(); },
+      } : undefined,
+      (id: CampaignId) => switchCampaign(id),
     );
   }
 
@@ -333,6 +350,7 @@ export class Game {
   }
 
   private targetName(id: string): string {
+    if (id === this.cur.def.special && this.cur.def.specialName) return this.cur.def.specialName;
     return SPECIAL_NAMES[id] ?? KINDS[id]?.name ?? id;
   }
 
@@ -350,20 +368,80 @@ export class Game {
     this.hud.hideOverlay();
     this.input.consumeDrop();
     this.saveProgress(this.currentLevel);
+    if (this.campaign.rewardsPieces) {
+      // A new game starts a new monster; a resumed one keeps its pieces and
+      // fills any slots it is missing for islands already cleared.
+      if (this.currentLevel === 0) this.pieces = {};
+      SLOTS.slice(0, this.currentLevel).forEach((slot) => { this.pieces[slot] ??= rollPiece(Math.random); });
+      this.savePieces();
+    }
     this.setPhase('PHASE_WEIGHT');
+  }
+
+  // ---------------------------------------------------------------- monster
+  private loadPieces(): MonsterBuild {
+    if (!this.campaign.rewardsPieces) return {};
+    try {
+      const raw = JSON.parse(localStorage.getItem(this.campaign.progressKey + PIECES_SUFFIX) ?? '{}') as Record<string, string>;
+      const out: MonsterBuild = {};
+      for (const slot of SLOTS) if (raw[slot] && raw[slot] in MONSTERS) out[slot] = raw[slot] as keyof typeof MONSTERS;
+      return out;
+    } catch { return {}; }
+  }
+
+  private savePieces(): void {
+    try { localStorage.setItem(this.campaign.progressKey + PIECES_SUFFIX, JSON.stringify(this.pieces)); } catch { /* ignore */ }
+  }
+
+  /** Award this island's body piece; returns what the results card shows. */
+  private awardPiece(): PieceReward | undefined {
+    if (!this.campaign.rewardsPieces) return undefined;
+    const slot = SLOTS[Math.min(this.currentLevel, SLOTS.length - 1)];
+    const id = rollPiece(this.rng);
+    this.pieces[slot] = id;
+    this.savePieces();
+    this.portrait ??= new MonsterPortrait();
+    const img = this.portrait.render(this.pieces, 360);
+    return {
+      label: pieceLabel(slot, id),
+      emoji: MONSTERS[id].emoji,
+      image: img?.toDataURL('image/png') ?? null,
+      filled: SLOTS.filter((s) => this.pieces[s]).length,
+      total: SLOTS.length,
+    };
+  }
+
+  private showMonsterFinal(total: number, stars: number, best: number): void {
+    for (const slot of SLOTS) this.pieces[slot] ??= rollPiece(this.rng);
+    this.savePieces();
+    this.portrait ??= new MonsterPortrait();
+    const big = this.portrait.render(this.pieces, 900, { placeholders: false });
+    const parts = SLOTS.map((slot) => `${MONSTERS[this.pieces[slot]!].emoji} ${pieceLabel(slot, this.pieces[slot]!)}`);
+    const url = gameUrl();
+    const card = (name: string) => composeCard(big, { name, parts, total, stars, url });
+    this.hud.showMonsterFinal(this.results, total, stars, best, {
+      image: big?.toDataURL('image/png') ?? null,
+      defaultName: monsterName(this.pieces),
+      parts,
+      onShare: async (name) => {
+        const outcome = await shareCard(await card(name), name, url);
+        return outcome === 'shared' ? 'Shared! 🎃' : outcome === 'downloaded' ? 'Picture saved, link copied! 🎃' : 'Maybe later 👻';
+      },
+      onDownload: async (name) => downloadCard(await card(name), name),
+    }, () => this.reset(), () => this.sfx.star());
   }
 
   private loadProgress(): number {
     try {
-      const v = Number(localStorage.getItem(PROGRESS_KEY) ?? 0);
-      return Number.isFinite(v) ? Math.min(LEVELS.length - 1, Math.max(0, v)) : 0;
+      const v = Number(localStorage.getItem(this.campaign.progressKey) ?? 0);
+      return Number.isFinite(v) ? Math.min(this.levelDefs.length - 1, Math.max(0, v)) : 0;
     } catch { return 0; }
   }
 
   private saveProgress(level: number): void {
     try {
       const prev = this.loadProgress();
-      localStorage.setItem(PROGRESS_KEY, String(Math.max(prev, level)));
+      localStorage.setItem(this.campaign.progressKey, String(Math.max(prev, level)));
     } catch { /* ignore */ }
   }
 
@@ -391,9 +469,9 @@ export class Game {
         this.hud.setBanner('');
         const b = computeScore(this.stats, this.targets.length);
         this.results.push({ level: this.cur.def, breakdown: b, stats: this.stats });
-        const isLast = this.currentLevel >= LEVELS.length - 1;
+        const isLast = this.currentLevel >= this.levelDefs.length - 1;
         this.sfx.fanfare();
-        this.hud.showLevelResults(this.cur.def, b, this.stats, isLast, () => this.continueFromResults(), () => this.sfx.star());
+        this.hud.showLevelResults(this.cur.def, b, this.stats, isLast, () => this.continueFromResults(), () => this.sfx.star(), this.awardPiece());
         break;
       }
     }
@@ -401,7 +479,7 @@ export class Game {
 
   private continueFromResults(): void {
     if (this.phase !== 'RESULTS') return;
-    if (this.currentLevel >= LEVELS.length - 1) this.showFinal();
+    if (this.currentLevel >= this.levelDefs.length - 1) this.showFinal();
     else this.startTravel(this.currentLevel + 1);
   }
 
@@ -413,9 +491,15 @@ export class Game {
     const avg = this.results.reduce((a, r) => a + r.breakdown.stars, 0) / this.results.length;
     const stars = minStars === 3 ? 3 : avg >= 2 ? 2 : 1;
     let best = 0;
-    try { best = Number(localStorage.getItem(BEST_KEY) ?? 0); } catch { /* ignore */ }
-    try { localStorage.setItem(BEST_KEY, String(Math.max(best, total))); } catch { /* ignore */ }
+    try { best = Number(localStorage.getItem(this.campaign.bestKey) ?? 0); } catch { /* ignore */ }
+    try { localStorage.setItem(this.campaign.bestKey, String(Math.max(best, total))); } catch { /* ignore */ }
     this.sfx.fanfare();
+    if (this.campaign.rewardsPieces) {
+      // The run is over: the next one starts from the first island with a new monster.
+      try { localStorage.setItem(this.campaign.progressKey, '0'); } catch { /* ignore */ }
+      this.showMonsterFinal(total, stars, best);
+      return;
+    }
     this.hud.showFinal(this.results, total, stars, best, () => this.reset(), () => this.sfx.star());
   }
 
@@ -434,8 +518,8 @@ export class Game {
     const tr = this.travel;
     tr.t += dt;
     const bridge = this.bridges[tr.from];
-    const fromDef = LEVELS[tr.from];
-    const toDef = LEVELS[tr.to];
+    const fromDef = this.levelDefs[tr.from];
+    const toDef = this.levelDefs[tr.to];
     if (tr.t < BRIDGE_TIME) {
       bridge.setExtension(easeOutCubic(tr.t / BRIDGE_TIME));
       return;
@@ -546,7 +630,7 @@ export class Game {
       lv.hole.update(dt);
       lv.diorama.update(dt, this.time, lv === this.cur ? wind : 0);
     });
-    const moodTheme = this.phase === 'TRAVEL' ? LEVELS[this.travel.to].theme : this.cur.def.theme;
+    const moodTheme = this.phase === 'TRAVEL' ? this.levelDefs[this.travel.to].theme : this.cur.def.theme;
     this.env.mood(moodTheme.sky, moodTheme.light, dt);
     this.env.update(dt, this.time);
     this.updateParticles(dt);

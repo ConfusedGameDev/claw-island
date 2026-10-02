@@ -3,6 +3,58 @@
 A browser-based 3D physics claw machine (UFO catcher) with a toy-diorama look
 inspired by *The Legend of Zelda: Link's Awakening* (Switch).
 
+## Campaigns
+
+The title screen has two campaigns. The last one picked is remembered, and
+`?campaign=halloween` or `?campaign=classic` in the URL overrides it.
+`DEFAULT_CAMPAIGN` in `src/game/Campaign.ts` sets which one new players see.
+Switch it back to `'classic'` after the season.
+
+### 🎃 Spooky Night (Halloween)
+
+A kawaii-horror take on the same ten-island run:
+
+- The crane is made of bones. The posts are bones topped with little skulls,
+  the rails are spines, the carriage is a skull with glowing eyes, and the
+  claw has three skeletal fingers.
+- Every island keeps a classic island's twist under a horror theme:
+
+| # | Island | Twist (from) |
+|---|---|---|
+| 1 | Pumpkin Patch | pumpkin-hatted cuccos and a guard (Meadow) |
+| 2 | Graveyard | skeleton crabs; a Spirit Crab haunts the open grave (Beach) |
+| 3 | Trick-or-Treat | everything bounces (Candy Land) |
+| 4 | Frozen Crypt | icy floor, skeleton cuccos (Snowfield) |
+| 5 | Witch's Brewery | a belt of potions feeds the hatch (Factory) |
+| 6 | Mummy Tomb | cursed sandstorm (Desert) |
+| 7 | Haunted Mansion | ghosts and the Ghost King (Haunted House) |
+| 8 | Vampire Castle | stricter grip (Volcano) |
+| 9 | Mad Scientist Lab | everything is too heavy; find the magnet (Future Lab) |
+| 10 | Witch's Sky | low gravity (Cloud Kingdom) |
+
+**Build a Frankenstein.**
+- Clearing an island awards the next body piece, in this order: head, body,
+  arms, legs, eyes, mouth, hair, extra.
+- Each piece comes from a random monster: vampire, werewolf, mummy, zombie,
+  ghost, witch, skeleton, pumpkin, cyclops or slime.
+- Pieces are saved with your progress, so a resumed run keeps its monster.
+
+**Share it.** After the tenth island you can name your monster and share it
+as a picture with a link to the game:
+- In the apps, sharing uses the native share sheet (`@capacitor/share`).
+- On the web, it uses the Web Share API.
+- Otherwise the PNG downloads and the text with the link is copied to the
+  clipboard.
+
+The link is the page the game is served from. The apps have no web address
+of their own, so set `PUBLIC_GAME_URL` in `src/game/Campaign.ts` before
+shipping them.
+
+### 🏝 Classic
+
+The original islands, unchanged. Classic progress and best score keep their
+old save keys.
+
 ## How to play
 
 Ten islands float in a line. Clear one and the crane's rails extend across the
@@ -108,7 +160,11 @@ src/
   game/Input.ts           keyboard + touch -> crane axes and drop button
   game/Scoring.ts         score formula
   game/Layout.ts          island-local coordinates (platform, hole, gantry bounds)
-  game/Levels.ts          the four level definitions and themes
+  game/Levels.ts          classic island definitions and theme/level types
+  game/LevelsHalloween.ts the Spooky Night islands and themes
+  game/Campaign.ts        campaign list, picker persistence, public game URL
+  game/Monster.ts         Frankenstein body pieces, procedural monster builder, portrait renderer
+  scene/Bones.ts          bone, spine and kawaii skull geometry (bone crane, fences, decor)
   scene/Environment.ts    lights and clouds shared by all islands
   scene/RailBridge.ts     rails that extend between islands for the crane to ride
   physics/PhysicsWorld.ts Rapier wrapper: fixed-step loop, body<->mesh interpolation
@@ -123,9 +179,11 @@ src/
   entities/Chicken.ts     cucco visuals and animation (white and black)
   entities/Ghost.ts       haunted island ghosts and the Ghost King
   entities/KindsExtra.ts  pickups for the later islands and the magnet tool
+  entities/KindsHalloween.ts spooky pickups (candy corn, tombstone, eyeball, coffin, potion, cauldron)
   entities/Crab.ts        crab visuals and animation, plus the diamond variant
   scene/Water.ts          stylised water shader (caustic web, swell, foam rim)
   entities/Grabbable.ts   interface shared by collectibles and chickens
-  ui/Hud.ts               DOM overlay: timer, attempts, target cards, intro/results
+  ui/Hud.ts               DOM overlay: timer, attempts, target cards, intro/results, monster screen
+  ui/Share.ts             share card composition and native/web sharing
   audio/Sfx.ts            WebAudio synth cues
 ```

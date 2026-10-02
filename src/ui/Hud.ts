@@ -3,6 +3,27 @@ import type { RunStats, ScoreBreakdown } from '../game/Scoring';
 import type { LevelDef } from '../game/Levels';
 import { PERFECT_ATTEMPTS } from '../game/Scoring';
 import { formatTime } from '../util/math';
+import type { Campaign, CampaignId } from '../game/Campaign';
+import { CAMPAIGNS } from '../game/Campaign';
+
+/** A body piece just won (results screen). */
+export interface PieceReward {
+  label: string;
+  emoji: string;
+  /** Monster so far, as an image URL (null without WebGL). */
+  image: string | null;
+  filled: number;
+  total: number;
+}
+
+/** The finished monster (final screen). */
+export interface MonsterFinal {
+  image: string | null;
+  defaultName: string;
+  parts: string[];
+  onShare: (name: string) => Promise<string>;
+  onDownload: (name: string) => Promise<void>;
+}
 
 export interface TargetCard { kind: string; name: string; icon: string; isImage: boolean }
 
@@ -138,29 +159,47 @@ export class Hud {
     this.overlay.innerHTML = '';
   }
 
-  showIntro(onStart: () => void, resume?: { level: LevelDef; onResume: () => void }): void {
+  showIntro(
+    campaign: Campaign, onStart: () => void, resume?: { level: LevelDef; onResume: () => void; pieces?: number },
+    onSwitch?: (id: CampaignId) => void,
+  ): void {
     this.overlay.classList.remove('hidden');
     this.overlay.innerHTML = '';
     const card = el('div', 'panel intro');
-    card.innerHTML = `
-      <div class="title">Claw Island</div>
-      <div class="subtitle">a tiny UFO-catcher adventure</div>
+    const spooky = campaign.rewardsPieces;
+    if (onSwitch) {
+      const tabs = el('div', 'campaign-tabs');
+      for (const c of Object.values(CAMPAIGNS)) {
+        const t = el('button', `campaign-tab ${c.id === campaign.id ? 'on' : ''}`, c.tab);
+        t.addEventListener('click', (e) => { e.stopPropagation(); if (c.id !== campaign.id) onSwitch(c.id); });
+        tabs.append(t);
+      }
+      card.append(tabs);
+    }
+    const body = el('div');
+    body.innerHTML = `
+      <div class="title">${campaign.title}</div>
+      <div class="subtitle">${campaign.subtitle}</div>
       <ol class="howto">
-        <li><b>1.</b> Three <b>treasures</b> are hidden on the island. Drop them into the hatch.</li>
+        <li><b>1.</b> Every island hides <b>treasures</b>. Drop them into the hatch.</li>
         <li><b>2.</b> The hatch is shut tight&hellip; find a way to open it.</li>
-        <li><b>3.</b> Grab things dead centre. A sloppy grip wobbles, then slips.</li>
+        ${spooky
+    ? '<li><b>3.</b> Clear an island to win a <b>body piece</b> from a random monster. Ten pieces make your own <b>Frankenstein</b>. 🧟</li>'
+    : '<li><b>3.</b> Grab things dead centre. A sloppy grip wobbles, then slips.</li>'}
       </ol>
       <div class="keys">
         <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>←</kbd><kbd>→</kbd> rotate</span>
         <span><kbd>Space</kbd> drop · drop again to release</span>
       </div>
     `;
+    card.append(body);
     const btns = el('div', 'btns');
     const btn = el('button', 'big-btn', resume ? 'New game' : 'Start');
     btn.addEventListener('click', onStart);
     btns.append(btn);
     if (resume) {
-      const r = el('button', 'big-btn alt', `Continue · Lv ${resume.level.index + 1}`);
+      const pieces = spooky && resume.pieces ? ` · ${resume.pieces}🦴` : '';
+      const r = el('button', 'big-btn alt', `Continue · Lv ${resume.level.index + 1}${pieces}`);
       r.addEventListener('click', resume.onResume);
       btns.append(r);
     }
@@ -190,13 +229,16 @@ export class Hud {
     requestAnimationFrame(tick);
   }
 
-  showLevelResults(level: LevelDef, b: ScoreBreakdown, stats: RunStats, isLast: boolean, onContinue: () => void, onStarSound: () => void): void {
+  showLevelResults(
+    level: LevelDef, b: ScoreBreakdown, stats: RunStats, isLast: boolean, onContinue: () => void, onStarSound: () => void, piece?: PieceReward,
+  ): void {
     this.overlay.classList.remove('hidden');
     this.overlay.innerHTML = '';
     const card = el('div', 'panel results');
     const perfect = stats.attempts <= PERFECT_ATTEMPTS ? ' <span class="badge">perfect</span>' : '';
     card.innerHTML = `<div class="title">Level ${level.index + 1} clear!</div><div class="subtitle">${level.name}</div>`;
     card.append(this.starsEl(b.stars, onStarSound));
+    if (piece) card.append(this.pieceEl(piece));
     const rows = el('div', 'rows');
     rows.innerHTML = `
       <div class="row"><span>Time</span><b>${formatTime(stats.seconds)}</b></div>
@@ -212,11 +254,11 @@ export class Hud {
     `;
     card.append(rows);
     const btns = el('div', 'btns');
-    const cont = el('button', 'big-btn', isLast ? 'See final score' : 'Continue ▶');
+    const cont = el('button', 'big-btn', isLast ? (piece ? 'It\'s alive! ⚡' : 'See final score') : 'Continue ▶');
     cont.addEventListener('click', onContinue);
     btns.append(cont);
     card.append(btns);
-    card.append(el('div', 'hint', isLast ? 'Enter · final score' : 'Enter · ride to the next island'));
+    card.append(el('div', 'hint', isLast ? (piece ? 'Enter · bring your monster to life' : 'Enter · final score') : 'Enter · ride to the next island'));
     this.overlay.append(card);
     this.countUp(rows.querySelector<HTMLElement>('.total-val')!, b.total);
   }
@@ -246,6 +288,71 @@ export class Hud {
     btns.append(replay);
     card.append(btns);
     card.append(el('div', 'hint', 'Enter · play again'));
+    this.overlay.append(card);
+    this.countUp(rows.querySelector<HTMLElement>('.total-val')!, total, 700);
+  }
+
+  private pieceEl(p: PieceReward): HTMLElement {
+    const box = el('div', 'piece');
+    const pic = p.image ? `<img class="piece-monster" src="${p.image}" alt="Your monster so far" />` : `<div class="piece-emoji">${p.emoji}</div>`;
+    const dots = Array.from({ length: p.total }, (_, i) => `<i class="${i < p.filled ? 'on' : ''}${i === p.filled - 1 ? ' new' : ''}"></i>`).join('');
+    box.innerHTML = `${pic}<div class="piece-text"><div class="piece-kicker">New body piece!</div><div class="piece-label">${p.emoji} ${p.label}</div><div class="piece-dots">${dots}</div><div class="piece-count">${p.filled} / ${p.total} pieces</div></div>`;
+    return box;
+  }
+
+  showMonsterFinal(
+    results: { level: LevelDef; breakdown: ScoreBreakdown; stats: RunStats }[],
+    total: number, stars: number, best: number, monster: MonsterFinal, onReplay: () => void, onStarSound: () => void,
+  ): void {
+    this.overlay.classList.remove('hidden');
+    this.overlay.innerHTML = '';
+    const card = el('div', 'panel results final monster-final');
+    card.innerHTML = `<div class="title">It's alive!</div><div class="subtitle">your Frankenstein is complete</div>`;
+    const stage = el('div', 'monster-stage');
+    stage.innerHTML = monster.image ? `<img src="${monster.image}" alt="Your monster" />` : '<div class="piece-emoji big">🧟</div>';
+    card.append(stage);
+    const nameRow = el('label', 'name-row');
+    nameRow.innerHTML = '<span>Name</span>';
+    const input = el('input', 'name-input');
+    input.type = 'text';
+    input.maxLength = 18;
+    input.value = monster.defaultName;
+    input.setAttribute('aria-label', 'Monster name');
+    nameRow.append(input);
+    card.append(nameRow);
+    const name = () => input.value.trim() || monster.defaultName;
+    const parts = el('div', 'parts');
+    parts.innerHTML = monster.parts.map((p) => `<span>${p}</span>`).join('');
+    card.append(parts);
+    card.append(this.starsEl(stars, onStarSound));
+    const rows = el('div', 'rows');
+    rows.innerHTML = `
+      <div class="row total"><span>Grand total</span><b class="total-val">0</b></div>
+      <div class="row best"><span>Best</span><b>${Math.max(best, total)}</b></div>
+    `;
+    card.append(rows);
+    const details = el('details', 'island-scores');
+    details.innerHTML = '<summary>Island scores</summary>';
+    const table = el('div', 'table');
+    table.innerHTML = `<div class="trow head"><span>Island</span><span>Time</span><span>Tries</span><span>Score</span><span></span></div>` +
+      results.map((r) => `<div class="trow"><span>${r.level.index + 1}. ${r.level.name}</span><span>${formatTime(r.stats.seconds)}</span><span>${r.stats.attempts}</span><span>${r.breakdown.total}</span><span class="mini-stars">${'★'.repeat(r.breakdown.stars)}<i>${'★'.repeat(3 - r.breakdown.stars)}</i></span></div>`).join('');
+    details.append(table);
+    card.append(details);
+    const btns = el('div', 'btns');
+    const share = el('button', 'big-btn share', 'Share 📤');
+    share.addEventListener('click', async () => {
+      share.disabled = true;
+      try { this.toast(await monster.onShare(name()), 'good'); } finally { share.disabled = false; }
+    });
+    const save = el('button', 'big-btn alt', 'Save image');
+    save.addEventListener('click', async () => {
+      await monster.onDownload(name());
+      this.toast('Picture saved! 🖼', 'good');
+    });
+    const replay = el('button', 'big-btn ghost', 'Play again');
+    replay.addEventListener('click', onReplay);
+    btns.append(share, save, replay);
+    card.append(btns);
     this.overlay.append(card);
     this.countUp(rows.querySelector<HTMLElement>('.total-val')!, total, 700);
   }

@@ -7,6 +7,12 @@ import { LAGOON_DEPTH, lagoonProfile, type LevelDef, type ThemeDef } from '../ga
 import { PhysicsWorld, FLOOR_GROUPS } from '../physics/PhysicsWorld';
 import { mulberry32, randRange } from '../util/math';
 import { createWaterMaterial } from './Water';
+import { boneGeometry, boneMat, boneDarkMat, skullMesh, spineGeometry } from './Bones';
+
+/** A half-cylinder lying along Z with its round side up (tombstone tops, crypt roofs). */
+function archGeometry(radius: number, depth: number): THREE.BufferGeometry {
+  return new THREE.CylinderGeometry(radius, radius, depth, 18, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2);
+}
 
 interface Pool { x: number; z: number; rx: number; rz: number; depth: number; kind: 'water' | 'lava' | 'goo' | 'ice' }
 interface Island { group: THREE.Group; baseY: number; phase: number }
@@ -35,7 +41,7 @@ export class Diorama {
   private pools(): Pool[] {
     const out: Pool[] = [];
     const L = this.level.lagoon;
-    if (L) out.push({ ...L, depth: LAGOON_DEPTH, kind: 'water' });
+    if (L) out.push({ x: L.x, z: L.z, rx: L.rx, rz: L.rz, depth: LAGOON_DEPTH, kind: L.kind ?? 'water' });
     if (this.theme.pond !== 'none') {
       const W = LAYOUT.WATER;
       out.push({ x: W.x, z: W.z, rx: W.rx, rz: W.rz, depth: 0.2, kind: this.theme.pond });
@@ -60,6 +66,7 @@ export class Diorama {
     if (level.conveyor) this.buildConveyor();
     if (level.wind) this.buildSand();
     this.buildFloatingIslands();
+    if (this.theme.decor) this.buildDecor(this.theme.decor);
     this.flush(this.batch, this.root);
   }
 
@@ -348,9 +355,12 @@ export class Diorama {
   private buildFence(): void {
     const { FENCE } = LAYOUT;
     const T = this.theme;
-    const woodMat = plastic(T.woodLight, { roughness: 0.7 });
-    const postGeo = new THREE.CylinderGeometry(0.055, 0.07, 0.52, 8);
-    const capGeo = new THREE.SphereGeometry(0.06, 8, 6);
+    const style = T.fence ?? 'picket';
+    const iron = plastic(0x2a2433, { roughness: 0.35, metalness: 0.5 });
+    const woodMat = style === 'iron' ? iron : style === 'bone' ? boneMat() : plastic(T.woodLight, { roughness: 0.7 });
+    const postGeo = style === 'bone' ? boneGeometry(0.42, 0.04) : style === 'iron' ? new THREE.CylinderGeometry(0.025, 0.03, 0.52, 6) : new THREE.CylinderGeometry(0.055, 0.07, 0.52, 8);
+    const capGeo = style === 'iron' ? new THREE.ConeGeometry(0.05, 0.12, 4) : style === 'bone' ? new THREE.SphereGeometry(0.001, 3, 2) : new THREE.SphereGeometry(0.06, 8, 6);
+    const capMat = style === 'iron' ? plastic(T.woodLight, { roughness: 0.35, metalness: 0.4 }) : woodMat;
     const positions: [number, number][] = [];
     const step = 0.76;
     const nx = Math.round((FENCE.hx * 2) / step);
@@ -364,7 +374,7 @@ export class Diorama {
       positions.push([-FENCE.hx, z], [FENCE.hx, z]);
     }
     const posts = new THREE.InstancedMesh(postGeo, woodMat, positions.length);
-    const caps = new THREE.InstancedMesh(capGeo, woodMat, positions.length);
+    const caps = new THREE.InstancedMesh(capGeo, capMat, positions.length);
     const m = new THREE.Matrix4();
     positions.forEach(([x, z], i) => {
       m.makeTranslation(x, 0.26, z);
@@ -377,7 +387,7 @@ export class Diorama {
     caps.castShadow = true;
     this.root.add(posts, caps);
 
-    const railMat = plastic(T.wood, { roughness: 0.7 });
+    const railMat = style === 'iron' ? iron : style === 'bone' ? boneDarkMat() : plastic(T.wood, { roughness: 0.7 });
     const addRail = (len: number, x: number, y: number, z: number, alongX: boolean) => {
       const r = new THREE.Mesh(new THREE.BoxGeometry(alongX ? len : 0.07, 0.06, alongX ? 0.07 : len), railMat);
       r.position.set(x, y, z);
@@ -598,6 +608,10 @@ export class Diorama {
 
   // ---------------------------------------------------------- gantry frame
   private buildGantryFrame(): void {
+    if (this.theme.gantry === 'bone') {
+      this.buildBoneGantry();
+      return;
+    }
     const { GANTRY } = LAYOUT;
     const frameMat = plastic(PAL.gantry, { roughness: 0.35 });
     const accentMat = plastic(PAL.gantryAccent, { roughness: 0.35 });
@@ -618,6 +632,35 @@ export class Diorama {
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.03, GANTRY.postZ * 2 + 0.2), accentMat);
       stripe.position.set(sx * GANTRY.postX, GANTRY.railY + 0.06, 0);
       this.bake(stripe);
+    }
+  }
+
+  /** Spooky campaign: bone posts topped with little skulls, spine rails. */
+  private buildBoneGantry(): void {
+    const { GANTRY } = LAYOUT;
+    const bone = boneMat();
+    const dark = boneDarkMat();
+    const postGeo = boneGeometry(GANTRY.railY - 0.1, 0.07);
+    const railLen = GANTRY.postZ * 2 + 0.2;
+    const railGeo = spineGeometry(railLen, 0.08);
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const post = new THREE.Mesh(postGeo, bone);
+        post.position.set(sx * GANTRY.postX, GANTRY.railY / 2, sz * GANTRY.postZ);
+        this.bake(post);
+        const foot = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 8), dark);
+        foot.scale.y = 0.45;
+        foot.position.set(sx * GANTRY.postX, 0.04, sz * GANTRY.postZ);
+        this.bake(foot);
+        // Below the rail so the crossbar can ride past it onto the bridges.
+        const skull = skullMesh(0.34);
+        skull.position.set(sx * GANTRY.postX, GANTRY.railY - 0.34, sz * GANTRY.postZ + 0.04);
+        skull.rotation.y = sx * -0.35;
+        this.bake(skull);
+      }
+      const rail = new THREE.Mesh(railGeo, bone);
+      rail.position.set(sx * GANTRY.postX, GANTRY.railY, railLen / 2);
+      this.bake(rail);
     }
   }
 
@@ -810,6 +853,99 @@ export class Diorama {
         }
         break;
       }
+      case 'jackolantern': {
+        const vine = plastic(T.leaf, { roughness: 0.6 });
+        const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.0, 8), vine);
+        stalk.position.y = 0.5;
+        stalk.rotation.z = 0.1;
+        g.add(stalk);
+        // A stack of pumpkins: big one at the bottom with a face, small on top.
+        for (const [y, r, face] of [[0.32, 0.42, true], [1.0, 0.28, true], [1.42, 0.16, false]] as const) {
+          g.add(this.makePumpkin(r, face, y));
+        }
+        for (const s of [-1, 1]) {
+          const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), plastic(T.leafLight, { roughness: 0.6 }));
+          leaf.scale.set(1, 0.25, 0.6);
+          leaf.position.set(s * 0.22, 1.6, 0);
+          leaf.rotation.z = s * 0.5;
+          g.add(leaf);
+        }
+        break;
+      }
+      case 'tombstone': {
+        const stone = plastic(0xa9a3c4, { roughness: 0.85 });
+        const dark = plastic(0x6b6488, { roughness: 0.85 });
+        const stones: [number, number, number, number, number][] = [[0, 0, 0.5, 0.75, 0.05], [0.55, 0.25, 0.36, 0.5, -0.18], [-0.5, 0.2, 0.32, 0.45, 0.15]];
+        for (const [x, z, w, h, tilt] of stones) {
+          const slab = new THREE.Mesh(new RoundedBoxGeometry(w, h, 0.12, 3, 0.04), stone);
+          slab.position.set(x, h / 2, z);
+          slab.rotation.z = tilt;
+          g.add(slab);
+          const top = new THREE.Mesh(archGeometry(w / 2, 0.12), stone);
+          top.position.set(x - Math.sin(tilt) * h / 2, h * Math.cos(tilt), z);
+          top.rotation.z = tilt;
+          g.add(top);
+          const cross = new THREE.Mesh(new THREE.BoxGeometry(w * 0.4, 0.04, 0.02), dark);
+          cross.position.set(x - Math.sin(tilt) * h * 0.25, h * 0.7, z + 0.065);
+          cross.rotation.z = tilt;
+          g.add(cross);
+        }
+        const bark = plastic(T.wood, { roughness: 0.8 });
+        const sapling = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.07, 1.2, 6), bark);
+        sapling.position.set(-0.15, 0.6, -0.35);
+        g.add(sapling);
+        for (const [y, a, l] of [[0.9, 0.9, 0.4], [1.05, -1.0, 0.35]]) {
+          const br = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.03, l, 5), bark);
+          br.position.set(-0.15 + Math.sin(a) * l * 0.45, y + Math.cos(a) * l * 0.3, -0.35);
+          br.rotation.z = -a;
+          g.add(br);
+        }
+        break;
+      }
+      case 'mushroom': {
+        const stem = plastic(0xf6ecd2, { roughness: 0.6 });
+        const caps: [number, number, number, number, number][] = [[0, 0, 1.1, 0.55, T.leaf], [0.5, 0.2, 0.6, 0.32, T.woodLight], [-0.45, 0.15, 0.45, 0.26, T.leafLight]];
+        for (const [x, z, h, r, c] of caps) {
+          const st = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.3, r * 0.4, h, 10), stem);
+          st.position.set(x, h / 2, z);
+          g.add(st);
+          const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), plastic(c, { roughness: 0.4, emissive: c, emissiveIntensity: 0.35 }));
+          cap.position.set(x, h - 0.02, z);
+          cap.scale.y = 0.75;
+          g.add(cap);
+          for (let i = 0; i < 4; i++) {
+            const a = i * 1.7 + x * 3;
+            const dot = new THREE.Mesh(new THREE.SphereGeometry(r * 0.14, 8, 6), plastic(0xffffff, { roughness: 0.5 }));
+            dot.position.set(x + Math.cos(a) * r * 0.6, h - 0.02 + r * 0.45, z + Math.sin(a) * r * 0.6);
+            dot.scale.y = 0.5;
+            g.add(dot);
+          }
+        }
+        break;
+      }
+      case 'obelisk': {
+        const stone = plastic(T.woodLight, { roughness: 0.85, flat: true });
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.24, 1.6, 4), stone);
+        shaft.position.y = 0.8;
+        shaft.rotation.y = Math.PI / 4;
+        g.add(shaft);
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.3, 4), plastic(0xffc928, { metalness: 0.6, roughness: 0.25 }));
+        tip.position.y = 1.75;
+        tip.rotation.y = Math.PI / 4;
+        g.add(tip);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), new THREE.MeshStandardMaterial({ color: 0x8ff0c0, emissive: 0x3fbf8a, emissiveIntensity: 1.4 }));
+        eye.position.set(0, 1.2, 0.13);
+        eye.scale.set(1.3, 0.7, 0.4);
+        g.add(eye);
+        const wrap = plastic(0xf2e6c9, { roughness: 0.8 });
+        for (const y of [0.35, 0.6]) {
+          const band = new THREE.Mesh(new THREE.TorusGeometry(0.25 - y * 0.06, 0.03, 6, 4), wrap);
+          band.rotation.set(Math.PI / 2, 0, Math.PI / 4);
+          band.position.y = y;
+          g.add(band);
+        }
+        break;
+      }
       case 'spire': {
         const rockMat = plastic(T.dirtDark, { roughness: 0.9, flat: true });
         const spires: [number, number, number, number][] = [[0, 0.45, 1.9, 0], [0.45, 0.3, 1.1, 0.2], [-0.4, 0.25, 0.9, -0.15]];
@@ -889,6 +1025,93 @@ export class Diorama {
         }
         break;
       }
+      case 'scarecrow': {
+        const wood = plastic(0x7a5230, { roughness: 0.8 });
+        add(new THREE.CylinderGeometry(0.05, 0.06, 1.5, 8), wood, 0, 0.75, 0);
+        const arm = add(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 8), wood, 0, 1.05, 0);
+        arm.rotation.z = Math.PI / 2;
+        add(new THREE.CylinderGeometry(0.2, 0.28, 0.5, 10), plastic(0x8a6bbf, { roughness: 0.7 }), 0, 1.0, 0);
+        for (const s of [-1, 1]) add(new THREE.ConeGeometry(0.06, 0.16, 6), plastic(0xffd23f, { roughness: 0.8 }), s * 0.58, 1.0, 0).rotation.z = s * Math.PI / 2;
+        const head = this.makePumpkin(0.24, true, 1.48);
+        g.add(head);
+        add(new THREE.ConeGeometry(0.32, 0.36, 12), plastic(0x2a2230, { roughness: 0.7 }), 0, 1.86, 0);
+        add(new THREE.CylinderGeometry(0.42, 0.42, 0.03, 16), plastic(0x2a2230, { roughness: 0.7 }), 0, 1.7, 0);
+        for (let i = 0; i < 5; i++) g.add(this.makePumpkin(0.12 + (i % 2) * 0.05, i % 2 === 0, 0.1, -0.7 + i * 0.35, 0.6 - (i % 3) * 0.15));
+        break;
+      }
+      case 'chapel': {
+        const wall = plastic(0x6b6488, { roughness: 0.8 });
+        const roof = plastic(0x2a2230, { roughness: 0.6 });
+        add(new THREE.BoxGeometry(0.8, 0.8, 1.1), wall, 0, 0.4, 0);
+        const r = add(new THREE.ConeGeometry(0.75, 0.55, 4), roof, 0, 1.07, 0, Math.PI / 4);
+        r.scale.z = 1.35;
+        add(new THREE.BoxGeometry(0.34, 0.9, 0.34), wall, 0, 0.95, 0.5);
+        add(new THREE.ConeGeometry(0.3, 0.6, 4), roof, 0, 1.7, 0.5, Math.PI / 4);
+        add(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16), windowGlow(0xb48cff), 0, 1.15, 0.68).rotation.x = Math.PI / 2;
+        add(new THREE.BoxGeometry(0.24, 0.4, 0.02), plastic(0x241d1a), 0, 0.2, 0.56);
+        for (const z of [-0.25, 0.15]) for (const s of [-1, 1]) add(new THREE.BoxGeometry(0.02, 0.24, 0.12), windowGlow(0xffb12b), s * 0.41, 0.48, z);
+        break;
+      }
+      case 'crypt': {
+        const stone = plastic(0xb8c0e0, { roughness: 0.75 });
+        const dark = plastic(0x3c3c5e, { roughness: 0.8 });
+        add(new THREE.BoxGeometry(1.2, 0.7, 0.9), stone, 0, 0.35, 0);
+        add(archGeometry(0.6, 0.9), stone, 0, 0.7, 0);
+        add(new THREE.BoxGeometry(0.42, 0.5, 0.04), dark, 0, 0.25, 0.46);
+        add(new THREE.SphereGeometry(0.05, 8, 6), windowGlow(0x9fe0ff), 0, 0.62, 0.47);
+        for (const s of [-1, 1]) {
+          add(new THREE.CylinderGeometry(0.07, 0.08, 0.75, 10), stone, s * 0.48, 0.37, 0.5);
+          add(new THREE.ConeGeometry(0.1, 0.16, 4), plastic(0xeaf2ff, { roughness: 0.3 }), s * 0.48, 0.82, 0.5);
+        }
+        for (let i = 0; i < 5; i++) add(new THREE.ConeGeometry(0.03, 0.14, 5), plastic(0xd9f2ff, { roughness: 0.1, transparent: true, opacity: 0.8 }), -0.4 + i * 0.2, 0.64, 0.46).rotation.x = Math.PI;
+        break;
+      }
+      case 'cauldron': {
+        const iron = plastic(0x2a2433, { roughness: 0.4, metalness: 0.3 });
+        const pot = add(new THREE.SphereGeometry(0.62, 22, 16, 0, Math.PI * 2, Math.PI * 0.25, Math.PI * 0.75), iron, 0, 0.6, 0);
+        pot.castShadow = true;
+        add(new THREE.TorusGeometry(0.46, 0.08, 10, 28), iron, 0, 1.03, 0).rotation.x = Math.PI / 2;
+        add(new THREE.CircleGeometry(0.44, 24), windowGlow(0x8ff0c0), 0, 1.0, 0).rotation.x = -Math.PI / 2;
+        const bubbleMat = windowGlow(0xd9fff0);
+        for (const [x, y, z, r] of [[0.1, 1.08, 0.1, 0.08], [-0.15, 1.12, -0.05, 0.1], [0.05, 1.3, -0.1, 0.06], [-0.05, 1.5, 0.05, 0.05]]) add(new THREE.SphereGeometry(r, 10, 8), bubbleMat, x, y, z);
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2;
+          add(new THREE.CylinderGeometry(0.06, 0.05, 0.2, 8), iron, Math.cos(a) * 0.38, 0.08, Math.sin(a) * 0.38);
+        }
+        const fire = windowGlow(0xff9a3c);
+        for (let i = 0; i < 4; i++) add(new THREE.ConeGeometry(0.09, 0.22, 6), fire, -0.2 + i * 0.13, 0.11, 0.3 - (i % 2) * 0.1);
+        break;
+      }
+      case 'vampcastle': {
+        const stone = plastic(0x4a3a5a, { roughness: 0.7 });
+        const roof = plastic(0x7a2e45, { roughness: 0.5 });
+        add(new THREE.BoxGeometry(1.0, 0.6, 0.7), stone, 0, 0.3, 0);
+        for (const x of [-0.5, 0.5]) {
+          add(new THREE.CylinderGeometry(0.2, 0.22, 1.1, 14), stone, x, 0.55, 0);
+          add(new THREE.ConeGeometry(0.26, 0.55, 14), roof, x, 1.37, 0);
+        }
+        add(new THREE.CylinderGeometry(0.24, 0.26, 1.5, 14), stone, 0, 0.75, -0.15);
+        add(new THREE.ConeGeometry(0.3, 0.7, 14), roof, 0, 1.85, -0.15);
+        add(new THREE.BoxGeometry(0.24, 0.32, 0.02), plastic(0x1e1824), 0, 0.16, 0.36);
+        for (const [x, y] of [[-0.5, 0.75], [0.5, 0.75], [0, 1.1]]) add(new THREE.BoxGeometry(0.1, 0.16, 0.02), windowGlow(0xd9304f), x, y, x === 0 ? 0.1 : 0.21);
+        break;
+      }
+      case 'witchhut': {
+        const wood = plastic(0x6b4a7a, { roughness: 0.75 });
+        const roof = plastic(0x2a2230, { roughness: 0.6 });
+        const hut = add(new THREE.CylinderGeometry(0.42, 0.5, 0.8, 8), wood, 0, 0.4, 0);
+        hut.rotation.z = 0.06;
+        const hat = add(new THREE.ConeGeometry(0.62, 1.1, 10), roof, 0.05, 1.32, 0);
+        hat.rotation.z = -0.18;
+        add(new THREE.CylinderGeometry(0.8, 0.8, 0.04, 20), roof, 0, 0.82, 0);
+        add(new THREE.TorusGeometry(0.5, 0.04, 6, 20), plastic(0xff9a3c, { roughness: 0.5 }), 0, 0.92, 0).rotation.x = Math.PI / 2;
+        add(new THREE.BoxGeometry(0.2, 0.32, 0.02), plastic(0x241d1a), 0, 0.16, 0.48);
+        add(new THREE.SphereGeometry(0.08, 10, 8), windowGlow(0xffd23f), 0.25, 0.5, 0.4);
+        const broom = add(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 6), plastic(0x9b6a3c), 0.6, 0.45, 0.2);
+        broom.rotation.z = 0.35;
+        add(new THREE.ConeGeometry(0.1, 0.25, 8), plastic(0xffd23f, { roughness: 0.8 }), 0.74, 0.08, 0.2);
+        break;
+      }
       case 'castle': {
         const stone = plastic(0xf6f8ff, { roughness: 0.6 });
         const gold = plastic(T.wood, { roughness: 0.3, metalness: 0.5 });
@@ -901,6 +1124,127 @@ export class Diorama {
         add(new THREE.CylinderGeometry(0.24, 0.26, 1.4, 14), stone, 0, 0.7, -0.15);
         add(new THREE.ConeGeometry(0.3, 0.55, 14), plastic(0xff9fcf, { roughness: 0.4 }), 0, 1.68, -0.15);
         add(new THREE.BoxGeometry(0.24, 0.32, 0.02), gold, 0, 0.16, 0.36);
+        break;
+      }
+    }
+    return g;
+  }
+
+  /** A kawaii jack-o'-lantern (glowing face optional), sitting on `y`. */
+  private makePumpkin(r: number, face: boolean, y: number, x = 0, z = 0): THREE.Group {
+    const g = new THREE.Group();
+    const orange = plastic(0xff9a3c, { roughness: 0.45 });
+    for (let i = 0; i < 5; i++) {
+      const lobe = new THREE.Mesh(new THREE.SphereGeometry(r * 0.62, 14, 10), orange);
+      const a = (i / 5) * Math.PI * 2;
+      lobe.position.set(Math.cos(a) * r * 0.42, 0, Math.sin(a) * r * 0.42);
+      lobe.scale.y = 1.1;
+      g.add(lobe);
+    }
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.08, r * 0.12, r * 0.4, 6), plastic(0x4fae5a, { roughness: 0.6 }));
+    stem.position.y = r * 0.75;
+    stem.rotation.z = 0.25;
+    g.add(stem);
+    if (face) {
+      const lit = new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xffb12b, emissiveIntensity: 1.3 });
+      for (const s of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.ConeGeometry(r * 0.16, r * 0.22, 3), lit);
+        eye.position.set(s * r * 0.3, r * 0.15, r * 0.94);
+        eye.rotation.x = Math.PI / 2;
+        g.add(eye);
+      }
+      const mouth = new THREE.Mesh(new THREE.TorusGeometry(r * 0.25, r * 0.06, 6, 12, Math.PI), lit);
+      mouth.position.set(0, -r * 0.12, r * 0.95);
+      mouth.rotation.z = Math.PI;
+      g.add(mouth);
+    }
+    g.position.set(x, y, z);
+    return g;
+  }
+
+  /** Small themed props on the slab rim outside the fence. */
+  private buildDecor(kind: NonNullable<ThemeDef['decor']>): void {
+    const { SLAB, FENCE } = LAYOUT;
+    const rng = mulberry32(777 + this.level.index * 31);
+    const spots: [number, number][] = [];
+    const rimX = (FENCE.hx + SLAB.hx) / 2 + 0.05;
+    const rimZ = (FENCE.hz + SLAB.hz) / 2 + 0.05;
+    for (let i = 0; i < 9; i++) spots.push([-SLAB.hx + 1.2 + i * ((SLAB.hx * 2 - 2.4) / 8), rimZ]);
+    for (let i = 0; i < 6; i++) {
+      const z = -FENCE.hz + 0.3 + i * ((FENCE.hz * 2 - 0.6) / 5);
+      spots.push([-rimX, z], [rimX, z]);
+    }
+    const b = this.level.button;
+    const signX = (b.x >= 0 ? 1 : -1) * (FENCE.hx + 0.55);
+    const ok = (x: number, z: number) => {
+      if (Math.hypot(x - signX, z - b.z) < 0.9) return false;
+      if (Math.abs(Math.abs(x) - LAYOUT.GANTRY.postX) < 0.35 && Math.abs(Math.abs(z) - LAYOUT.GANTRY.postZ) < 0.35) return false;
+      for (const p of this.pools()) if (Math.hypot((x - p.x) / (p.rx + 0.45), (z - p.z) / (p.rz + 0.45)) < 1) return false;
+      return true;
+    };
+    for (const [x0, z0] of spots) {
+      if (rng() < 0.35) continue;
+      const x = x0 + (rng() - 0.5) * 0.25;
+      const z = z0 + (rng() - 0.5) * 0.15;
+      if (!ok(x, z)) continue;
+      const prop = this.makeDecor(kind, rng);
+      prop.position.set(x, 0, z);
+      prop.rotation.y = (rng() - 0.5) * 0.8;
+      this.bake(prop);
+    }
+  }
+
+  private makeDecor(kind: NonNullable<ThemeDef['decor']>, rng: () => number): THREE.Group {
+    const g = new THREE.Group();
+    switch (kind) {
+      case 'pumpkins':
+        g.add(this.makePumpkin(0.12 + rng() * 0.06, rng() < 0.5, 0.1));
+        break;
+      case 'tombstones': {
+        const h = 0.22 + rng() * 0.12;
+        const stone = plastic(0xa9a3c4, { roughness: 0.85 });
+        const slab = new THREE.Mesh(new RoundedBoxGeometry(0.2, h, 0.06, 2, 0.02), stone);
+        slab.position.y = h / 2;
+        slab.rotation.z = (rng() - 0.5) * 0.3;
+        const top = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), stone);
+        top.scale.z = 0.3;
+        top.position.y = h;
+        g.add(slab, top);
+        break;
+      }
+      case 'candles': {
+        const n = 1 + Math.floor(rng() * 3);
+        for (let i = 0; i < n; i++) {
+          const h = 0.1 + rng() * 0.12;
+          const wax = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, h, 8), plastic(0xf6ecd2, { roughness: 0.5 }));
+          const x = (i - (n - 1) / 2) * 0.08;
+          wax.position.set(x, h / 2, (i % 2) * 0.05);
+          const flame = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.05, 6), new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xffb12b, emissiveIntensity: 2 }));
+          flame.position.set(x, h + 0.03, (i % 2) * 0.05);
+          g.add(wax, flame);
+        }
+        break;
+      }
+      case 'mushrooms': {
+        const c = [0xb48cff, 0x8ff0c0, 0xff9fcf][Math.floor(rng() * 3)];
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.12, 8), plastic(0xf6ecd2, { roughness: 0.6 }));
+        stem.position.y = 0.06;
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), plastic(c, { roughness: 0.4, emissive: c, emissiveIntensity: 0.5 }));
+        cap.position.y = 0.11;
+        cap.scale.y = 0.7;
+        g.add(stem, cap);
+        break;
+      }
+      case 'bones': {
+        const bone = new THREE.Mesh(boneGeometry(0.22, 0.025), boneMat());
+        bone.rotation.z = Math.PI / 2;
+        bone.position.y = 0.045;
+        g.add(bone);
+        if (rng() < 0.4) {
+          const sk = skullMesh(0.16);
+          sk.position.set(0.1, 0.08, 0.05);
+          g.add(sk);
+        }
         break;
       }
     }

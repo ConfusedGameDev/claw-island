@@ -17,6 +17,8 @@ export class Input {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.gesture();
+      // Typing in a text field (naming your monster) never drives the crane.
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       this.keys.add(e.code);
       if (e.code === 'Space' || e.code === 'Enter') {
         this.dropQueued = true;

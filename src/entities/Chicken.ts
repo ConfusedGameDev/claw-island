@@ -36,7 +36,9 @@ export class Chicken extends Critter {
 
   protected buildMesh(): THREE.Object3D {
     const dark = this.variant === 'black';
-    const white = plastic(dark ? COL.feather : COL.white, { roughness: 0.6 });
+    const skin = this.level?.critterSkin;
+    const skeleton = skin === 'skeleton';
+    const white = plastic(skeleton ? (dark ? 0x3a3346 : 0xfff1dc) : dark ? COL.feather : COL.white, { roughness: 0.6 });
     const orange = plastic(COL.orange, { roughness: 0.5 });
     const red = plastic(COL.red, { roughness: 0.5 });
     const black = dark ? plastic(COL.eyeRed, { roughness: 0.3, emissive: COL.eyeRed, emissiveIntensity: 0.6 }) : plastic(COL.black, { roughness: 0.4 });
@@ -74,15 +76,48 @@ export class Chicken extends Critter {
     const wattle = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), red);
     wattle.position.set(0, -0.06, 0.08);
     this.head.add(wattle);
-    for (const [y, z] of [[0.1, 0.02], [0.11, -0.03], [0.09, -0.07]]) {
-      const comb = new THREE.Mesh(new THREE.SphereGeometry(dark ? 0.04 : 0.03, 8, 6), red);
-      comb.position.set(0, y, z);
-      this.head.add(comb);
+    if (skin === 'pumpkin') {
+      // A little jack-o'-lantern hat instead of the comb.
+      const pumpkin = plastic(dark ? 0x8a6bbf : 0xff9a3c, { roughness: 0.45 });
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const lobe = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), pumpkin);
+        lobe.position.set(Math.cos(a) * 0.035, 0.1, Math.sin(a) * 0.035 - 0.01);
+        lobe.scale.y = 0.85;
+        lobe.castShadow = true;
+        this.head.add(lobe);
+      }
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.012, 0.04, 6), plastic(0x4fae5a, { roughness: 0.6 }));
+      stem.position.set(0, 0.16, -0.01);
+      stem.rotation.z = 0.3;
+      this.head.add(stem);
+    } else {
+      for (const [y, z] of [[0.1, 0.02], [0.11, -0.03], [0.09, -0.07]]) {
+        const comb = new THREE.Mesh(new THREE.SphereGeometry(dark ? 0.04 : 0.03, 8, 6), skeleton && !dark ? plastic(0xb48cff, { roughness: 0.5 }) : red);
+        comb.position.set(0, y, z);
+        this.head.add(comb);
+      }
     }
     for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), black);
-      eye.position.set(side * 0.06, 0.02, 0.075);
+      // Skeletons get big hollow sockets with a glowing pupil.
+      const socket = skeleton && !dark;
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(socket ? 0.03 : 0.018, 8, 6), socket ? plastic(0x2a2230, { roughness: 0.5 }) : black);
+      eye.position.set(side * 0.055, 0.02, 0.07);
       this.head.add(eye);
+      if (socket) {
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.01, 6, 4), plastic(0x8ff0c0, { emissive: 0x8ff0c0, emissiveIntensity: 1.5 }));
+        pupil.position.set(side * 0.055, 0.025, 0.098);
+        this.head.add(pupil);
+      }
+    }
+    if (skeleton) {
+      const rib = plastic(dark ? 0x221c2a : 0xd9c4a3, { roughness: 0.6 });
+      for (const z of [-0.06, 0, 0.06]) {
+        const r = new THREE.Mesh(new THREE.TorusGeometry(0.168, 0.009, 4, 20, Math.PI), rib);
+        r.position.set(0, -0.01, z);
+        r.scale.set(1, 0.9, 1);
+        this.bodyMesh.add(r);
+      }
     }
     this.bodyMesh.add(this.head);
     root.add(this.bodyMesh);

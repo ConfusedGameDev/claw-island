@@ -339,4 +339,147 @@ kbd {
   .card-name { min-width: 0; font-size: 12px; }
   .card-icon { width: 44px; height: 44px; }
   .title { font-size: 34px; }
+  .piece-monster, .piece-emoji { width: 84px; height: 84px; }
+  .piece-label { font-size: 16px; }
+  .piece-dots i { width: 11px; height: 11px; }
+  .monster-final .big-btn { font-size: 18px; padding: 8px 20px; }
+  .monster-final .title { font-size: 32px; }
 }
+
+/* ---------- campaign picker ---------- */
+.campaign-tabs {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin: -6px 0 14px;
+}
+.campaign-tab {
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 3px solid var(--ink);
+  background: var(--cream-2);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.campaign-tab.on { background: var(--accent); color: #fff; box-shadow: 0 3px 0 var(--ink); }
+
+/* ---------- body piece reward ---------- */
+.piece {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--cream-2);
+  border: 3px solid var(--ink);
+  border-radius: 18px;
+  padding: 6px 12px 6px 6px;
+  margin: 0 0 12px;
+  text-align: left;
+  animation: pop 0.6s 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+.piece-monster { width: 112px; height: 112px; object-fit: contain; animation: wobble 2.4s ease-in-out infinite; }
+.piece-emoji { font-size: 64px; width: 112px; text-align: center; }
+.piece-emoji.big { font-size: 160px; width: auto; }
+.piece-kicker { font-size: 13px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 1px; }
+.piece-label { font-size: 19px; font-weight: 700; color: var(--accent); }
+.piece-dots { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
+.piece-dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ink); background: #fff; }
+.piece-dots i.on { background: var(--green); }
+.piece-dots i.new { animation: pop 0.6s 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) backwards; background: var(--gold); }
+.piece-count { font-size: 12px; color: var(--ink-soft); }
+
+/* ---------- monster final ---------- */
+.monster-stage {
+  display: grid;
+  place-items: center;
+  margin: -4px auto 4px;
+  width: min(56vw, 240px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #fff1c9 0%, #ffcf8a 45%, transparent 70%);
+}
+.monster-stage img { width: 100%; height: 100%; object-fit: contain; animation: alive 1.8s ease-in-out infinite; }
+.name-row { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; margin-bottom: 8px; }
+.name-input {
+  font-family: inherit;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  width: 12em;
+  max-width: 60vw;
+  padding: 4px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.parts { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin-bottom: 2px; font-size: 12px; }
+.monster-final .title { font-size: 38px; }
+.monster-final .subtitle { margin-bottom: 8px; }
+.monster-final .stars { margin: 4px 0 6px; }
+.monster-final .star { font-size: 40px; }
+.monster-final .rows { margin-bottom: 6px; }
+.parts span { background: var(--cream-2); border-radius: 999px; padding: 2px 8px; }
+.island-scores { margin-bottom: 8px; font-size: 14px; color: var(--ink-soft); }
+.island-scores summary { cursor: pointer; font-weight: 700; margin-bottom: 6px; }
+.big-btn.share { background: var(--accent); color: #fff; }
+.big-btn.ghost { background: var(--cream-2); }
+.big-btn:disabled { opacity: 0.6; }
+
+@keyframes wobble { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg) translateY(-3px); } }
+@keyframes alive {
+  0%, 100% { transform: translateY(0) scale(1); }
+  45% { transform: translateY(-6px) scale(1.02, 0.98); }
+  50% { transform: translateY(-6px) scale(1.03) rotate(1deg); filter: drop-shadow(0 0 12px #b48cff); }
+  55% { transform: translateY(-6px) scale(1.02, 0.98); }
+}
+
+/* ---------- Spooky Night skin: kawaii pastel purple, pumpkin orange, slime mint ---------- */
+body.halloween {
+  --cream: #f6eeff;
+  --cream-2: #e6d9ff;
+  --ink: #2a2230;
+  --ink-soft: #6b5a7a;
+  --accent: #ff8a3c;
+  --blue: #8a6bbf;
+  --green: #8ff0c0;
+  --gold: #ffd23f;
+  --shadow: 0 8px 0 #6b4f9a, 0 14px 30px rgba(0, 0, 0, 0.45);
+  background: #2a1840;
+}
+body.halloween .pill,
+body.halloween .banner,
+body.halloween .targets,
+body.halloween .toast { box-shadow: 0 4px 0 #6b4f9a; }
+body.halloween .pill.level { background: #8a6bbf; border-color: #2a2230; box-shadow: 0 4px 0 #2a2230; }
+body.halloween .tbtn { box-shadow: 0 4px 0 #6b4f9a; }
+body.halloween .tbtn.active { box-shadow: 0 1px 0 #6b4f9a; }
+body.halloween .tbtn.drop { background: #ff8a3c; box-shadow: 0 6px 0 #b3561a; }
+body.halloween .tbtn.drop.active { box-shadow: 0 1px 0 #b3561a; }
+body.halloween .toast.good { color: #2f9f6a; }
+body.halloween .toast.bad { color: #d9304f; }
+body.halloween #overlay { background: rgba(26, 12, 40, 0.55); }
+body.halloween .title { color: #ff8a3c; }
+body.halloween .panel { position: relative; }
+/* Cobweb corners and a dangling spider on the panels. */
+body.halloween .panel::before,
+body.halloween .panel::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 64px;
+  height: 64px;
+  pointer-events: none;
+  opacity: 0.55;
+  background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none' stroke='%236b5a7a' stroke-width='1.6' stroke-linecap='round'><path d='M0 0L64 6M0 0L56 30M0 0L30 56M0 0L6 64'/><path d='M21 2Q19 10 18 10Q12 14 10 18Q10 19 2 21'/><path d='M42 4Q38 18 37 19Q27 26 19 37Q18 38 4 42'/><path d='M62 6Q56 28 55 29Q41 40 29 55Q28 56 6 62'/></svg>") no-repeat top left / 100% 100%;
+  border-top-left-radius: 22px;
+}
+body.halloween .panel::before { left: 0; }
+body.halloween .panel::after { right: 0; transform: scaleX(-1); }
+body.halloween .star.lit { color: var(--gold); }
+body.halloween .star { color: #c9b8e6; }
+body.halloween .mini-stars i { color: #c9b8e6; }

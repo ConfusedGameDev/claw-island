@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PAL, plastic } from './Materials';
 import { LAYOUT } from '../game/Layout';
+import { boneDarkMat, boneMat, spineGeometry } from './Bones';
 
 /**
  * A pair of rail segments that slide out from one island's gantry to connect
@@ -13,12 +14,31 @@ export class RailBridge {
   private couplers: THREE.Mesh[] = [];
   readonly length: number;
 
-  constructor(scene: THREE.Scene, from: { x: number; z: number }, to: { x: number; z: number }) {
+  constructor(scene: THREE.Scene, from: { x: number; z: number }, to: { x: number; z: number }, look: 'plastic' | 'bone' = 'plastic') {
     const { GANTRY } = LAYOUT;
     const startZ = from.z - GANTRY.postZ;
     const endZ = to.z + GANTRY.postZ;
     this.length = startZ - endZ; // positive, bridge runs toward -Z
     this.group.position.set(0, GANTRY.railY, startZ);
+    if (look === 'bone') {
+      // A spine that stretches out; a knobbly joint snaps on at the far end.
+      const spine = spineGeometry(this.length, 0.08);
+      for (const sx of [-1, 1]) {
+        const rail = new THREE.Mesh(spine, boneMat());
+        rail.position.x = sx * GANTRY.postX;
+        rail.castShadow = true;
+        this.group.add(rail);
+        this.rails.push(rail);
+        const coupler = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), boneDarkMat());
+        coupler.position.set(sx * GANTRY.postX, 0.02, -this.length);
+        coupler.castShadow = true;
+        this.group.add(coupler);
+        this.couplers.push(coupler);
+      }
+      scene.add(this.group);
+      this.setExtension(0);
+      return;
+    }
     const frameMat = plastic(PAL.gantry, { roughness: 0.35 });
     const accentMat = plastic(PAL.gantryAccent, { roughness: 0.35 });
     for (const sx of [-1, 1]) {

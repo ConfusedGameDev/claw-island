@@ -1,3 +1,10 @@
 node_modules
 dist
 .DS_Store
+
+# mobile signing material (never commit)
+android/app/release.keystore
+ios/App/build
+*.p12
+*.mobileprovision
+AuthKey_*.p8

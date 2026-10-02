@@ -1,3 +1,7 @@
+@import '@fontsource/fredoka/400.css';
+@import '@fontsource/fredoka/600.css';
+@import '@fontsource/fredoka/700.css';
+
 :root {
   --cream: #fff7e6;
   --cream-2: #ffe9c4;
@@ -44,8 +48,8 @@ html, body {
 .hud-top {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
-  left: 12px;
-  right: 12px;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: start;

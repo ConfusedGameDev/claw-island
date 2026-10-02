@@ -12,6 +12,11 @@ export class Environment {
   readonly key: THREE.DirectionalLight;
   private clouds: Cloud[] = [];
   private focusPoint = new THREE.Vector3();
+  private hemi: THREE.HemisphereLight;
+  private fill: THREE.DirectionalLight;
+  private base = { sun: 2.1, key: 0.9, hemi: 0.6, fill: 0.35 };
+  private sky = new THREE.Color();
+  private light = 1;
 
   constructor(private scene: THREE.Scene) {
     this.sun = new THREE.DirectionalLight(0xfff6e8, 2.1);
@@ -29,10 +34,11 @@ export class Environment {
     scene.add(this.key, this.key.target);
     this.focus({ x: 0, z: 0 });
 
-    scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6b8f3c, 0.6));
-    const fill = new THREE.DirectionalLight(0xbfd0ff, 0.35);
-    fill.position.set(-4, 6, -3);
-    scene.add(fill);
+    this.hemi = new THREE.HemisphereLight(0xcfe8ff, 0x6b8f3c, 0.6);
+    scene.add(this.hemi);
+    this.fill = new THREE.DirectionalLight(0xbfd0ff, 0.35);
+    this.fill.position.set(-4, 6, -3);
+    scene.add(this.fill);
 
     this.buildClouds();
   }
@@ -49,6 +55,19 @@ export class Environment {
     this.key.target.updateMatrixWorld();
   }
 
+  /** Ease the sky color and light level toward an island's mood. */
+  mood(sky: number, light: number, dt: number, instant = false): void {
+    const k = instant ? 1 : 1 - Math.exp(-dt * 2.5);
+    this.sky.lerp(new THREE.Color(sky), k);
+    this.light += (light - this.light) * k;
+    if (this.scene.background instanceof THREE.Color) this.scene.background.copy(this.sky);
+    else this.scene.background = this.sky.clone();
+    this.sun.intensity = this.base.sun * this.light;
+    this.key.intensity = this.base.key * this.light;
+    this.hemi.intensity = this.base.hemi * (0.5 + this.light * 0.5);
+    this.fill.intensity = this.base.fill * this.light;
+  }
+
   update(dt: number, t: number): void {
     for (const c of this.clouds) {
       // Drift outward slowly, then slide back in from the inner edge of the lane.
@@ -63,7 +82,7 @@ export class Environment {
     // Clouds sit low and off to the sides so they frame the islands without
     // drifting across the play areas; they wrap within their own side lane.
     const defs: { x: number; y: number; z: number; s: number; speed: number; side: number }[] = [];
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 44; i++) {
       const side = i % 2 === 0 ? -1 : 1;
       defs.push({
         side,

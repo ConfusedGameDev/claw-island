@@ -111,21 +111,23 @@ export class PhysicsWorld {
   }
 
   /** Axis-aligned fixed box collider helper. */
-  addFixedBox(center: THREE.Vector3Like, half: THREE.Vector3Like, opts: { friction?: number; groups?: number; sensor?: boolean } = {}): RAPIER.Collider {
+  addFixedBox(center: THREE.Vector3Like, half: THREE.Vector3Like, opts: { friction?: number; groups?: number; sensor?: boolean; restitution?: number } = {}): RAPIER.Collider {
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z));
     const desc = RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z)
       .setFriction(opts.friction ?? 0.9)
       .setCollisionGroups(opts.groups ?? FLOOR_GROUPS)
       .setSensor(opts.sensor ?? false);
+    if (opts.restitution) desc.setRestitution(opts.restitution).setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max);
     return this.world.createCollider(desc, body);
   }
 
   /** Fixed triangle-mesh collider (used for carved floors). */
-  addFixedTrimesh(vertices: Float32Array, indices: Uint32Array, opts: { friction?: number; groups?: number } = {}): RAPIER.Collider {
+  addFixedTrimesh(vertices: Float32Array, indices: Uint32Array, opts: { friction?: number; groups?: number; restitution?: number } = {}): RAPIER.Collider {
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     const desc = RAPIER.ColliderDesc.trimesh(vertices, indices)
       .setFriction(opts.friction ?? 0.9)
       .setCollisionGroups(opts.groups ?? FLOOR_GROUPS);
+    if (opts.restitution) desc.setRestitution(opts.restitution).setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max);
     return this.world.createCollider(desc, body);
   }
 

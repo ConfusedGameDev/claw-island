@@ -10,10 +10,11 @@ import { Button } from '../entities/Button';
 import { Hole } from '../entities/Hole';
 import { Chicken } from '../entities/Chicken';
 import { Crab } from '../entities/Crab';
+import { Ghost } from '../entities/Ghost';
 import { type Critter, type Obstacle, RectRegion, EllipseRegion } from '../entities/Critter';
 import { tickWater } from '../scene/Water';
 import {
-  COLLECTIBLE_KINDS, Collectible, EMOJI_FALLBACK, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
+  COLLECTIBLE_KINDS, PICKUP_KINDS, Collectible, EMOJI_FALLBACK, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
 } from '../entities/Collectible';
 import { Hud } from '../ui/Hud';
 import { Input } from './Input';
@@ -21,7 +22,7 @@ import { Sfx } from '../audio/Sfx';
 import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
 import { LAYOUT } from './Layout';
 import { LEVELS, type LevelDef } from './Levels';
-import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle } from '../util/math';
+import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle, windValue } from '../util/math';
 
 export type Phase = 'INTRO' | 'PHASE_WEIGHT' | 'HOLE_OPENING' | 'PHASE_COLLECT' | 'RESULTS' | 'TRAVEL' | 'FINAL';
 
@@ -35,7 +36,12 @@ interface LevelRuntime {
   collectibles: Collectible[];
   critters: Critter[];
   targets: string[];
+  /** Factory: items still to be dropped onto the belt, and the countdown to the next one. */
+  feed: string[];
+  feedT: number;
 }
+
+const SPECIAL_NAMES: Record<string, string> = { diamondcrab: 'Diamond Crab', crownghost: 'Ghost King' };
 
 export interface LevelResult { level: LevelDef; breakdown: ScoreBreakdown; stats: RunStats }
 
@@ -108,6 +114,8 @@ export class Game {
         collectibles: [],
         critters: [],
         targets: [],
+        feed: [],
+        feedT: 0,
       });
     }
     for (let i = 0; i < LEVELS.length - 1; i++) {
@@ -119,8 +127,9 @@ export class Game {
     this.hud = new Hud(this.input);
     this.input.onFirstGesture = () => this.sfx.unlock();
     this.icons = renderIcons([
-      ...COLLECTIBLE_KINDS.map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
+      ...PICKUP_KINDS.map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
       { key: 'diamondcrab', build: () => Crab.buildIconMesh('diamond') },
+      { key: 'crownghost', build: () => Ghost.buildIconMesh('crown') },
     ]);
 
     this.claw.events = {
@@ -149,6 +158,17 @@ export class Game {
         this.sfx.squawk();
       },
       onRelease: () => this.sfx.release(),
+      onTooHeavy: () => {
+        this.hud.toast('Too heavy for the claw!', 'bad');
+        this.sfx.wrong();
+        this.shake = 0.12;
+      },
+      onToolPickup: (c) => {
+        const col = this.cur.collectibles.find((x) => x === c);
+        col?.dispose();
+        this.hud.toast('Magnet attached! 🧲', 'good');
+        this.sfx.deliver();
+      },
     };
     for (const lv of this.levels) lv.button.onPressed = () => this.onButtonPressed(lv);
 
@@ -188,6 +208,8 @@ export class Game {
       lv.collectibles = [];
       lv.critters = [];
       lv.targets = [];
+      lv.feed = [];
+      lv.diorama.conveyorRunning = false;
       lv.button.reset();
       lv.hole.reset();
     }
@@ -198,13 +220,21 @@ export class Game {
     this.currentLevel = levelIndex;
     const def = this.cur.def;
     this.claw.reset(def.origin);
-    this.claw.gripScale = def.gripScale;
+    this.applyLevelRules(def);
     this.viewOrigin.set(def.origin.x, 0, def.origin.z);
     this.camX = 0;
     this.env.focus(def.origin);
+    this.env.mood(def.theme.sky, def.theme.light, 0, true);
     this.hud.setLevel(def);
     this.beginLevelStats();
     this.spawnLevel(this.cur);
+  }
+
+  /** Per-island claw rules. */
+  private applyLevelRules(def: LevelDef): void {
+    this.claw.gripScale = def.gripScale;
+    this.claw.heavyAll = Boolean(def.heavy);
+    this.claw.wind = 0;
   }
 
   private beginLevelStats(): void {
@@ -219,28 +249,46 @@ export class Game {
     const { SPAWN, HOLE, WEIGHT } = LAYOUT;
     const def = lv.def;
     const o = def.origin;
-    lv.collectibles.push(new Collectible('weight', { x: o.x + def.weight.x, y: WEIGHT.y, z: o.z + def.weight.z }, 0, this.phys, this.scene, false));
+    const gravity = def.gravityScale ?? 1;
+    const bouncy = def.theme.floorRestitution ?? 0;
+    const add = (c: Collectible) => {
+      if (gravity !== 1) c.body.setGravityScale(gravity, true);
+      // Candy: the toys themselves are springy too (the weight stays dead so the button works).
+      if (bouncy && c.kind !== 'weight') c.collider.setRestitution(0.8);
+      lv.collectibles.push(c);
+      return c;
+    };
+    add(new Collectible('weight', { x: o.x + def.weight.x, y: WEIGHT.y, z: o.z + def.weight.z }, 0, this.phys, this.scene, false));
+    if (def.magnet) add(new Collectible('magnet', { x: o.x + def.magnet.x, y: 0.5, z: o.z + def.magnet.z }, 0.4, this.phys, this.scene, false));
 
-    const kinds = shuffle(COLLECTIBLE_KINDS, this.rng);
+    const kinds = shuffle(def.pool ?? COLLECTIBLE_KINDS, this.rng);
     const kindTargets = def.special ? def.targets - 1 : def.targets;
-    const targets: string[] = [...(def.special ? [def.special] : []), ...kinds.slice(0, kindTargets)];
+    const targetKinds = kinds.slice(0, kindTargets);
+    const targets: string[] = [...(def.special ? [def.special] : []), ...targetKinds];
     const decoyKinds = kinds.slice(kindTargets);
-    const decoys: Kind[] = [];
-    while (decoys.length < def.decoys) {
-      for (const k of decoyKinds) if (decoys.length < def.decoys) decoys.push(k);
-    }
-    const toSpawn = shuffle([...kinds.slice(0, kindTargets), ...shuffle(decoys, this.rng)], this.rng);
+    const fill = (n: number): Kind[] => {
+      const out: Kind[] = [];
+      while (out.length < n) for (const k of decoyKinds) if (out.length < n) out.push(k);
+      return shuffle(out, this.rng);
+    };
+    // Factory: targets arrive on the belt mixed with junk; only a little junk lies around.
+    const C = def.conveyor;
+    lv.feed = C ? shuffle([...targetKinds, ...fill(C.feedJunk)], this.rng) : [];
+    lv.feedT = 0.6;
+    const toSpawn = shuffle([...(C ? [] : targetKinds), ...fill(def.decoys)], this.rng);
     const exclusions = [
       { x: def.button.x, z: def.button.z, r: 1.0 },
       { x: def.weight.x, z: def.weight.z, r: 0.7 },
       { x: HOLE.x, z: HOLE.z, r: 1.0 },
+      ...(def.magnet ? [{ x: def.magnet.x, z: def.magnet.z, r: 0.7 }] : []),
       ...(def.lagoon ? [{ x: def.lagoon.x, z: def.lagoon.z, r: Math.max(def.lagoon.rx, def.lagoon.rz) + 0.35 }] : []),
+      ...(C ? Array.from({ length: Math.ceil((C.x1 - C.x0) / 0.5) + 1 }, (_, i) => ({ x: C.x0 + i * 0.5, z: C.z, r: 0.75 })) : []),
     ];
     const points = pickSpawnPoints(toSpawn.length, this.rng, SPAWN, exclusions, 0.55);
     toSpawn.forEach((kind, i) => {
       const p = points[i] ?? new THREE.Vector2(0, 0);
       const y = 1.2 + this.rng() * 1.0;
-      lv.collectibles.push(new Collectible(kind, { x: o.x + p.x, y, z: o.z + p.y }, this.rng() * Math.PI * 2, this.phys, this.scene, targets.includes(kind)));
+      add(new Collectible(kind, { x: o.x + p.x, y, z: o.z + p.y }, this.rng() * Math.PI * 2, this.phys, this.scene, targets.includes(kind)));
     });
 
     const { FENCE } = LAYOUT;
@@ -249,7 +297,7 @@ export class Game {
       ...(def.lagoon ? [{ x: o.x + def.lagoon.x, z: o.z + def.lagoon.z, r: Math.max(def.lagoon.rx, def.lagoon.rz) + 0.3 }] : []),
     ];
     const land = new RectRegion(o.x, o.z, FENCE.hx - 0.4, FENCE.hz - 0.4, landAvoid);
-    const critterPoints = pickSpawnPoints(def.critters + (def.guards ?? 0), this.rng, { hx: FENCE.hx - 0.5, hz: FENCE.hz - 0.5 }, [
+    const critterPoints = pickSpawnPoints(def.critter === 'none' ? 0 : def.critters + (def.guards ?? 0), this.rng, { hx: FENCE.hx - 0.5, hz: FENCE.hz - 0.5 }, [
       ...exclusions, { x: def.button.x, z: def.button.z, r: 1.1 },
       ...points.map((p) => ({ x: p.x, z: p.y, r: 0.5 })),
     ], 0.8);
@@ -258,7 +306,9 @@ export class Game {
       const guard = i >= def.critters;
       const c: Critter = def.critter === 'crab'
         ? new Crab(this.scene, this.phys, start, this.rng, def, land, 'red')
-        : new Chicken(this.scene, this.phys, start, this.rng, def, land, guard ? 'black' : 'white');
+        : def.critter === 'ghost'
+          ? new Ghost(this.scene, this.phys, start, this.rng, def, land, 'plain')
+          : new Chicken(this.scene, this.phys, start, this.rng, def, land, guard ? 'black' : 'white');
       c.onSquawk = () => this.sfx.squawk();
       c.onChatter = () => this.sfx.cluck();
       if (guard) c.onReach = () => this.onGuardReached(c);
@@ -271,13 +321,19 @@ export class Game {
       dc.onSquawk = () => this.sfx.squawk();
       lv.critters.push(dc);
     }
+    if (def.special === 'crownghost') {
+      const [p] = pickSpawnPoints(1, this.rng, { hx: FENCE.hx - 0.8, hz: FENCE.hz - 0.8 }, exclusions, 0.5);
+      const king = new Ghost(this.scene, this.phys, { x: o.x + (p?.x ?? 1), z: o.z + (p?.y ?? 1) }, this.rng, def, land, 'crown');
+      king.onSquawk = () => this.sfx.squawk();
+      lv.critters.push(king);
+    }
 
     lv.targets = targets;
     if (lv === this.cur) this.applyTargets(targets);
   }
 
   private targetName(id: string): string {
-    return id === 'diamondcrab' ? 'Diamond Crab' : KINDS[id as Kind].name;
+    return SPECIAL_NAMES[id] ?? KINDS[id]?.name ?? id;
   }
 
   private applyTargets(targets: string[]): void {
@@ -321,13 +377,14 @@ export class Game {
         this.hud.setBanner('');
         break;
       case 'PHASE_WEIGHT':
-        this.hud.setBanner('The hatch is shut tight', 'explore the island with the claw');
+        this.hud.setBanner('The hatch is shut tight', this.cur.def.hint ?? 'explore the island with the claw');
         break;
       case 'HOLE_OPENING':
         this.hud.setBanner('The hatch opens!', '');
         break;
       case 'PHASE_COLLECT':
-        this.hud.setBanner(`Find the ${this.targets.length} treasures`, 'drop them into the hole');
+        this.hud.setBanner(`Find the ${this.targets.length} treasures`, this.cur.def.collectHint ?? 'drop them into the hole');
+        if (this.cur.def.conveyor) this.cur.diorama.conveyorRunning = true;
         this.hud.showTargets(true);
         break;
       case 'RESULTS': {
@@ -404,9 +461,9 @@ export class Game {
     this.currentLevel = to;
     const def = this.cur.def;
     this.claw.setOrigin(def.origin);
-    this.claw.gripScale = def.gripScale;
     this.claw.pos.set(def.origin.x, LAYOUT.GANTRY.restY, def.origin.z);
     this.claw.endTravel();
+    this.applyLevelRules(def);
     this.viewOrigin.set(def.origin.x, 0, def.origin.z);
     this.env.focus(def.origin);
     this.hud.setLevel(def);
@@ -470,17 +527,27 @@ export class Game {
     if (this.phase === 'HOLE_OPENING' && this.phaseT >= 1.2) this.setPhase('PHASE_COLLECT');
     if (this.phase === 'INTRO' || this.phase === 'TRAVEL') this.input.consumeDrop();
     if (this.phase === 'TRAVEL') this.updateTravel(dt);
+    const wind = this.cur.def.wind && this.phase !== 'TRAVEL' ? windValue(this.time) * this.cur.def.wind : 0;
+    this.claw.wind = wind;
+    if (this.phase === 'PHASE_COLLECT') this.updateFeed(dt);
 
     this.phys.update(dt, (h) => this.preStep(h, playing), () => this.postStep());
 
     this.claw.updateVisuals(dt);
     tickWater(this.time);
-    for (const lv of this.levels) {
+    // Only the islands near the crane are drawn and animated.
+    const near = this.phase === 'TRAVEL' ? [this.travel.from, this.travel.to] : [this.currentLevel];
+    this.levels.forEach((lv, i) => {
+      const visible = near.some((n) => i >= n - 1 && i <= n + 2);
+      lv.diorama.root.visible = lv.button.group.visible = lv.hole.group.visible = visible;
+      if (!visible) return;
       for (const ch of lv.critters) ch.animate(dt, this.time);
       lv.button.update();
       lv.hole.update(dt);
-      lv.diorama.update(dt, this.time);
-    }
+      lv.diorama.update(dt, this.time, lv === this.cur ? wind : 0);
+    });
+    const moodTheme = this.phase === 'TRAVEL' ? LEVELS[this.travel.to].theme : this.cur.def.theme;
+    this.env.mood(moodTheme.sky, moodTheme.light, dt);
     this.env.update(dt, this.time);
     this.updateParticles(dt);
     this.updateCamera(dt);
@@ -489,9 +556,40 @@ export class Game {
     this.postfx.render();
   }
 
+  /** Factory: drop the next queued item onto the start of the belt. */
+  private updateFeed(dt: number): void {
+    const lv = this.cur;
+    const C = lv.def.conveyor;
+    if (!C || lv.feed.length === 0) return;
+    lv.feedT -= dt;
+    if (lv.feedT > 0) return;
+    lv.feedT = C.interval;
+    const kind = lv.feed.shift()!;
+    const o = lv.def.origin;
+    lv.collectibles.push(new Collectible(kind, { x: o.x + C.x0 + 0.35, y: 0.8, z: o.z + C.z }, this.rng() * Math.PI * 2, this.phys, this.scene, lv.targets.includes(kind)));
+  }
+
+  /** Factory: anything resting on the running belt is carried toward the hatch. */
+  private pushConveyor(): void {
+    const lv = this.cur;
+    const C = lv.def.conveyor;
+    if (!C || !lv.diorama.conveyorRunning) return;
+    const o = lv.def.origin;
+    for (const c of lv.collectibles) {
+      if (c.removed || c.held) continue;
+      const p = c.body.translation();
+      const lx = p.x - o.x;
+      const lz = p.z - o.z;
+      if (lx < C.x0 - 0.1 || lx > C.x1 + 0.05 || Math.abs(lz - C.z) > C.width / 2 || p.y > 0.9 || p.y < 0.2) continue;
+      const v = c.body.linvel();
+      c.body.setLinvel({ x: C.speed, y: v.y, z: (C.z - lz) * 1.5 }, true);
+    }
+  }
+
   private preStep(dt: number, playing: boolean): void {
     this.claw.step(dt, this.input, playing);
     this.updateGuards();
+    this.pushConveyor();
     const descending = this.claw.state === 'DESCENDING' || this.claw.state === 'CLOSING';
     for (const lv of this.levels) {
       lv.button.step(dt);
@@ -573,7 +671,7 @@ export class Game {
 
   private onFellOff(c: Collectible): void {
     const def = this.cur.def;
-    if (c.isTarget && !c.delivered) {
+    if ((c.isTarget && !c.delivered) || c.kind === 'weight' || c.kind === 'magnet') {
       const { SPAWN, HOLE } = LAYOUT;
       const [p] = pickSpawnPoints(1, this.rng, SPAWN, [
         { x: def.button.x, z: def.button.z, r: 1.0 }, { x: HOLE.x, z: HOLE.z, r: 1.0 },

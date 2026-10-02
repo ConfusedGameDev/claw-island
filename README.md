@@ -5,9 +5,23 @@ inspired by *The Legend of Zelda: Link's Awakening* (Switch).
 
 ## How to play
 
-Four islands float in a line: **Meadow**, **Beach**, **Snowfield** (icy floor,
-things slide) and **Volcano** (stricter grip). Clear one and the crane's rails
-extend across the gap so the crossbar can ride to the next island. Each island:
+Ten islands float in a line. Clear one and the crane's rails extend across the
+gap so the crossbar can ride to the next island. Each has its own twist:
+
+| # | Island | Twist |
+|---|---|---|
+| 1 | Meadow | cuccos, and a black cucco that defends them |
+| 2 | Beach | crabs; a diamond crab lives in the carved lagoon |
+| 3 | Candy Land | everything bounces |
+| 4 | Snowfield | icy floor, things slide |
+| 5 | Factory | a conveyor feeds the hatch: pull the junk off before it falls in |
+| 6 | Desert Ruins | sandstorm gusts push the crane |
+| 7 | Haunted House | ghosts drift around; catch the Ghost King |
+| 8 | Volcano | stricter grip |
+| 9 | Future Lab | everything is steel and too heavy for the claw: find the magnet |
+| 10 | Cloud Kingdom | low gravity |
+
+Each island:
 
 1. **Open the hatch.** Grab the heavy weight with the claw and let it go above the
    big red button. The hatch in the middle of the island swings open.
@@ -106,7 +120,9 @@ src/
   entities/Hole.ts        trapdoor panels and the delivery sensor
   entities/Collectible.ts procedural object catalog, spawning, HUD icons
   entities/Critter.ts     base for small creatures: roaming regions, freeze, grab, escape, hole fall
-  entities/Chicken.ts     cucco visuals and animation
+  entities/Chicken.ts     cucco visuals and animation (white and black)
+  entities/Ghost.ts       haunted island ghosts and the Ghost King
+  entities/KindsExtra.ts  pickups for the later islands and the magnet tool
   entities/Crab.ts        crab visuals and animation, plus the diamond variant
   scene/Water.ts          stylised water shader (caustic web, swell, foam rim)
   entities/Grabbable.ts   interface shared by collectibles and chickens

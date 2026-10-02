@@ -44,10 +44,16 @@ export interface ClawEvents {
   onSlip?: (c: Grabbable) => void;
   /** The thing wriggled free on its own (chickens). */
   onEscape?: (c: Grabbable) => void;
+  /** Claw closed on something it cannot lift. */
+  onTooHeavy?: (c: Grabbable) => void;
+  /** Claw picked up a tool (the magnet) instead of an object. */
+  onToolPickup?: (c: Grabbable) => void;
   onRelease?: (c: Grabbable) => void;
 }
 
 const IDENTITY_Q = { x: 0, y: 0, z: 0, w: 1 };
+/** Ray filter that only sees static floor-like colliders (floor, belt, button, trapdoors). */
+const GROUND_GROUPS = groups(G.OBJECT, G.FLOOR);
 /** Query groups that see loose objects, chickens and the floor/button. */
 const LOWER_GROUPS = groups(G.OBJECT | G.CLAW, G.OBJECT | G.FLOOR | G.CHICKEN);
 /** How far above the surface below a held object is let go. */
@@ -78,6 +84,16 @@ export class Claw {
   readonly bounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
   /** Multiplies grip tolerances (per level difficulty). */
   gripScale = 1;
+  /** Future Lab: the bare claw cannot lift anything except tools. */
+  heavyAll = false;
+  /** Horizontal wind pushing the crane (m/s), set by the game each frame. */
+  wind = 0;
+  tool: 'claw' | 'magnet' = 'claw';
+  private magnetMesh!: THREE.Group;
+  /** Surface height under the claw, measured when a drop starts. */
+  private groundY = 0;
+  /** Set when a close ended in a tool pickup or a too-heavy object (no miss sound). */
+  private quietMiss = false;
   private yawVel = 0;
   private t = 0;
   private open01 = 1;
@@ -183,6 +199,24 @@ export class Claw {
       this.head.add(pivot);
       this.fingerPivots.push(pivot);
     }
+    // Magnet tool, hidden until picked up.
+    this.magnetMesh = new THREE.Group();
+    const red = plastic(PAL.buttonCap, { roughness: 0.3 });
+    const steel = plastic(PAL.claw, { roughness: 0.25, metalness: 0.6 });
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.06, 12, 24, Math.PI), red);
+    arc.position.y = -0.14;
+    arc.castShadow = true;
+    this.magnetMesh.add(arc);
+    for (const s of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 14), red);
+      leg.position.set(s * 0.15, -0.2, 0);
+      const tipM = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.08, 14), steel);
+      tipM.position.set(s * 0.15, -0.3, 0);
+      leg.castShadow = tipM.castShadow = true;
+      this.magnetMesh.add(leg, tipM);
+    }
+    this.magnetMesh.visible = false;
+    this.head.add(this.magnetMesh);
     scene.add(this.head);
 
     // ---- physics
@@ -262,6 +296,7 @@ export class Claw {
   }
 
   endTravel(): void {
+    this.setTool('claw');
     this.pos.y = LAYOUT.GANTRY.restY;
     this.yaw = 0;
     this.yawVel = 0;
@@ -279,12 +314,33 @@ export class Claw {
     this.phys.snap(this.body);
   }
 
+  private get holdGap(): number {
+    return this.tool === 'magnet' ? 0.34 : CLAW.HOLD_GAP;
+  }
+
+  setTool(tool: 'claw' | 'magnet'): void {
+    this.tool = tool;
+    const magnet = tool === 'magnet';
+    this.magnetMesh.visible = magnet;
+    for (const p of this.fingerPivots) p.visible = !magnet;
+    for (const c of this.fingerColliders) c.setEnabled(!magnet);
+    this.bounceVel = 3;
+  }
+
+  /** Height of the first floor-like surface below a point (0 if none). */
+  private surfaceBelow(x: number, z: number): number {
+    const ray = new RAPIER.Ray({ x, y: LAYOUT.GANTRY.restY + 0.5, z }, { x: 0, y: -1, z: 0 });
+    const hit = this.phys.world.castRay(ray, 8, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, GROUND_GROUPS);
+    return hit ? LAYOUT.GANTRY.restY + 0.5 - hit.timeOfImpact : LAYOUT.FLOOR_Y;
+  }
+
   get busy(): boolean {
     return this.state !== 'IDLE' && this.state !== 'HOLDING';
   }
 
   reset(origin: { x: number; z: number }): void {
     if (this.held) this.detach(false);
+    this.setTool('claw');
     this.setOrigin(origin);
     this.open01 = 1;
     this.applyFingers(1);
@@ -308,12 +364,13 @@ export class Claw {
         const len = Math.hypot(ax, az) || 1;
         this.vel.x = damp(this.vel.x, (ax / len) * CLAW.MOVE_SPEED, 14, dt);
         this.vel.z = damp(this.vel.z, (az / len) * CLAW.MOVE_SPEED, 14, dt);
-        this.pos.x = clamp(this.pos.x + this.vel.x * dt, this.bounds.minX, this.bounds.maxX);
-        this.pos.z = clamp(this.pos.z + this.vel.z * dt, this.bounds.minZ, this.bounds.maxZ);
+        this.pos.x = clamp(this.pos.x + (this.vel.x + this.wind) * dt, this.bounds.minX, this.bounds.maxX);
+        this.pos.z = clamp(this.pos.z + (this.vel.z + this.wind * 0.3) * dt, this.bounds.minZ, this.bounds.maxZ);
         if (inputEnabled && input.consumeDrop()) {
           this.vel.set(0, 0, 0);
           if (this.state === 'IDLE') {
             this.events.onAttempt?.();
+            this.groundY = this.surfaceBelow(this.pos.x, this.pos.z);
             this.enter('DESCENDING');
           } else {
             this.enter('LOWERING');
@@ -333,7 +390,9 @@ export class Claw {
           if (allowed <= 0.004) { stop = true; move = 0; }
           else move = Math.min(move, allowed);
         }
-        const minY = FLOOR_Y + CLAW.MIN_TIP_CLEARANCE - CLAW.FINGER_BOTTOM;
+        // Gusts keep nudging the cable on the way down.
+        this.pos.x = clamp(this.pos.x + this.wind * 0.5 * dt, this.bounds.minX, this.bounds.maxX);
+        const minY = this.groundY + CLAW.MIN_TIP_CLEARANCE - CLAW.FINGER_BOTTOM;
         this.pos.y = Math.max(minY, this.pos.y - move);
         if (this.pos.y <= minY + 1e-4) stop = true;
         if (stop) this.enter('CLOSING');
@@ -343,9 +402,10 @@ export class Claw {
         this.t += dt;
         this.open01 = 1 - easeOutCubic(Math.min(1, this.t / CLAW.CLOSE_TIME));
         if (this.t >= CLAW.CLOSE_TIME) {
+          this.quietMiss = false;
           if (this.tryGrab()) this.enter('SQUEEZING');
           else {
-            this.events.onMiss?.();
+            if (!this.quietMiss) this.events.onMiss?.();
             this.enter('ASCENDING');
           }
         }
@@ -357,7 +417,7 @@ export class Claw {
         break;
       }
       case 'ASCENDING': {
-        const start = FLOOR_Y + CLAW.MIN_TIP_CLEARANCE - CLAW.FINGER_BOTTOM;
+        const start = Math.min(this.groundY, FLOOR_Y) + CLAW.MIN_TIP_CLEARANCE - CLAW.FINGER_BOTTOM;
         this.pos.y = Math.min(GANTRY.restY, this.pos.y + CLAW.ASCEND_SPEED * dt);
         const progress = (this.pos.y - start) / (GANTRY.restY - start);
         if (this.held && this.slipping) {
@@ -385,7 +445,7 @@ export class Claw {
         if (!held || held.removed) { this.enter('RELEASING'); break; }
         const { top, bottom } = held.def;
         let move = CLAW.DESCEND_SPEED * dt;
-        const centerY = this.pos.y - CLAW.HOLD_GAP - top;
+        const centerY = this.pos.y - this.holdGap - top;
         const hit = this.phys.world.castShape(
           { x: this.pos.x, y: centerY, z: this.pos.z }, IDENTITY_Q, { x: 0, y: -1, z: 0 }, new RAPIER.Ball(0.2),
           0, 4, true, undefined, LOWER_GROUPS, undefined, held.body,
@@ -397,7 +457,7 @@ export class Claw {
           if (gap <= 0.004) { stop = true; move = 0; }
           else move = Math.min(move, gap);
         }
-        const minY = FLOOR_Y + RELEASE_CLEARANCE + bottom + CLAW.HOLD_GAP + top;
+        const minY = FLOOR_Y + RELEASE_CLEARANCE + bottom + this.holdGap + top;
         this.pos.y = Math.max(minY, this.pos.y - move);
         if (this.pos.y <= minY + 1e-4) stop = true;
         if (stop) {
@@ -441,8 +501,8 @@ export class Claw {
 
     if (this.held) {
       this.holdT += dt;
-      const target = this.tmpV.set(this.pos.x, this.pos.y - CLAW.HOLD_GAP - this.held.def.top, this.pos.z);
-      const k = easeOutCubic(Math.min(1, this.holdT / 0.12));
+      const target = this.tmpV.set(this.pos.x, this.pos.y - this.holdGap - this.held.def.top, this.pos.z);
+      const k = easeOutCubic(Math.min(1, this.holdT / (this.tool === 'magnet' ? 0.3 : 0.12)));
       target.lerpVectors(this.grabStart, target, k);
       const kr = Math.min(1, this.holdT / 0.3);
       // Upright, turned with the claw since it was grabbed.
@@ -472,25 +532,40 @@ export class Claw {
 
   private tryGrab(): boolean {
     const hub = this.body.translation();
+    const magnet = this.tool === 'magnet';
+    const reach = magnet ? 0.75 : CLAW.GRAB_REACH;
     const tip = { x: hub.x, y: hub.y + CLAW.TIP_Y, z: hub.z };
     let best: Grabbable | null = null;
     let bestD = Infinity;
     this.phys.world.intersectionsWithShape(
-      tip, IDENTITY_Q, new RAPIER.Ball(CLAW.GRAB_RADIUS),
+      tip, IDENTITY_Q, new RAPIER.Ball(magnet ? 0.85 : CLAW.GRAB_RADIUS),
       (col) => {
         const b = col.parent();
         if (!b) return true;
         const c = grabbableOf(b);
         if (!c || c.removed || c.held) return true;
+        if (magnet && c.kind === 'magnet') return true;
         const p = b.translation();
         const d = Math.hypot(p.x - hub.x, p.z - hub.z);
-        if (d < CLAW.GRAB_REACH && d < bestD) { bestD = d; best = c; }
+        if (d < reach && d < bestD) { bestD = d; best = c; }
         return true;
       },
       undefined, GRAB_QUERY_GROUPS,
     );
-    if (!best) return false;
-    this.attach(best, bestD);
+    const found = best as Grabbable | null;
+    if (!found) return false;
+    if (!magnet && found.kind === 'magnet') {
+      this.setTool('magnet');
+      this.quietMiss = true;
+      this.events.onToolPickup?.(found);
+      return false;
+    }
+    if (!magnet && this.heavyAll) {
+      this.quietMiss = true;
+      this.events.onTooHeavy?.(found);
+      return false;
+    }
+    this.attach(found, magnet ? 0 : bestD);
     return true;
   }
 

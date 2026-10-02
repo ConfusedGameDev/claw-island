@@ -39,3 +39,6 @@ export const formatTime = (seconds: number): string => {
   const m = Math.floor(s / 60);
   return `${m}:${(s % 60).toString().padStart(2, '0')}`;
 };
+
+/** Gusty wind in [-1, 1]: two slow overlapping waves. */
+export const windValue = (t: number): number => Math.sin(t * 0.45) * 0.6 + Math.sin(t * 1.15 + 1.3) * 0.4;

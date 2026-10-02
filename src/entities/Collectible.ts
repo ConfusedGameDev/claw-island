@@ -3,8 +3,10 @@ import * as THREE from 'three';
 import { PAL, plastic } from '../scene/Materials';
 import { PhysicsWorld, OBJECT_GROUPS, HELD_GROUPS } from '../physics/PhysicsWorld';
 import type { Grabbable, GrabDef } from './Grabbable';
+import { EXTRA_KINDS, EXTRA_EMOJI } from './KindsExtra';
 
-export type Kind = 'rupee' | 'heart' | 'shell' | 'acorn' | 'mushroom' | 'star' | 'rock' | 'bomb' | 'weight';
+/** Any key of KINDS (base catalog plus the later islands' pickups in KindsExtra.ts). */
+export type Kind = string;
 
 /** The pool the three run targets are drawn from. */
 export const COLLECTIBLE_KINDS: Kind[] = ['rupee', 'heart', 'shell', 'acorn', 'mushroom', 'star', 'rock', 'bomb'];
@@ -73,7 +75,7 @@ function weightLabel(): THREE.Texture {
 }
 
 // ----------------------------------------------------------------- catalog
-export const KINDS: Record<Kind, KindDef> = {
+const BASE_KINDS: Record<string, KindDef> = {
   rupee: {
     name: 'Rupee', mass: 0.3, grip: 0.8, top: 0.26, bottom: 0.26,
     buildMesh() {
@@ -219,6 +221,11 @@ export const KINDS: Record<Kind, KindDef> = {
     collider: () => RAPIER.ColliderDesc.cuboid(0.31, 0.33, 0.31).setTranslation(0, 0.1, 0),
   },
 };
+
+export const KINDS: Record<string, KindDef> = { ...BASE_KINDS, ...EXTRA_KINDS };
+
+/** Every kind that can show up as a pickup or target (tools and the weight excluded). */
+export const PICKUP_KINDS: string[] = Object.keys(KINDS).filter((k) => k !== 'weight' && k !== 'magnet');
 
 // -------------------------------------------------------------- instances
 export class Collectible implements Grabbable {
@@ -375,4 +382,5 @@ export function renderIcons(entries: IconEntry[]): Record<string, string> {
 
 export const EMOJI_FALLBACK: Record<string, string> = {
   rupee: '💎', heart: '❤️', shell: '🐚', acorn: '🌰', mushroom: '🍄', star: '⭐', rock: '🪨', bomb: '💣', weight: '🏋️', diamondcrab: '🦀',
+  ...EXTRA_EMOJI,
 };

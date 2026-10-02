@@ -8,7 +8,7 @@ import { PhysicsWorld, FLOOR_GROUPS } from '../physics/PhysicsWorld';
 import { mulberry32, randRange } from '../util/math';
 import { createWaterMaterial } from './Water';
 
-interface Pool { x: number; z: number; rx: number; rz: number; depth: number; kind: 'water' | 'lava' | 'ice' }
+interface Pool { x: number; z: number; rx: number; rz: number; depth: number; kind: 'water' | 'lava' | 'goo' | 'ice' }
 interface Island { group: THREE.Group; baseY: number; phase: number }
 
 /**
@@ -24,6 +24,12 @@ export class Diorama {
   private rng: () => number;
   private theme: ThemeDef;
   private origin: THREE.Vector3;
+  /** Factory: set by the game while the belt should move. */
+  conveyorRunning = false;
+  private beltTex: THREE.CanvasTexture | null = null;
+  private sand: THREE.InstancedMesh | null = null;
+  private sandSeeds: { x: number; y: number; z: number; s: number }[] = [];
+  private sandMat: THREE.MeshBasicMaterial | null = null;
 
   /** Every pool on this island (island-local). All pools are carved into the slab. */
   private pools(): Pool[] {
@@ -51,6 +57,8 @@ export class Diorama {
     this.buildGantryFrame();
     this.buildSign();
     for (const pool of this.pools()) this.buildPool(pool);
+    if (level.conveyor) this.buildConveyor();
+    if (level.wind) this.buildSand();
     this.buildFloatingIslands();
     this.flush(this.batch, this.root);
   }
@@ -68,6 +76,8 @@ export class Diorama {
       if (!geo.attributes.uv) {
         geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
       }
+      // Merging needs every geometry indexed (or none); extrusions come unindexed.
+      if (!geo.index) geo.setIndex(Array.from({ length: geo.attributes.position.count }, (_, i) => i));
       const list = into.get(mat) ?? [];
       list.push(geo);
       into.set(mat, list);
@@ -87,12 +97,93 @@ export class Diorama {
     buckets.clear();
   }
 
-  update(dt: number, t: number): void {
-    void dt;
+  update(dt: number, t: number, wind = 0): void {
     for (const i of this.islands) {
       i.group.position.y = i.baseY + Math.sin(t * 0.5 + i.phase) * 0.08;
     }
     if (this.lava) this.lava.emissiveIntensity = 1.1 + Math.sin(t * 2.2) * 0.3;
+    const C = this.level.conveyor;
+    if (this.beltTex && C && this.conveyorRunning) this.beltTex.offset.x -= (C.speed * dt) / 0.4;
+    if (this.sand && this.sandMat) {
+      const m = new THREE.Matrix4();
+      const speed = Math.sign(wind || 1) * (1.2 + Math.abs(wind) * 5);
+      this.sandSeeds.forEach((sd, i) => {
+        sd.x += speed * sd.s * dt;
+        if (sd.x > 5.5) sd.x -= 11;
+        if (sd.x < -5.5) sd.x += 11;
+        m.makeScale(0.6 + Math.abs(wind) * 1.5, 1, 1).setPosition(sd.x, sd.y + Math.sin(t * 3 + i) * 0.05, sd.z);
+        this.sand!.setMatrixAt(i, m);
+      });
+      this.sand.instanceMatrix.needsUpdate = true;
+      this.sandMat.opacity = 0.2 + Math.min(0.55, Math.abs(wind) * 0.6);
+    }
+  }
+
+  // ------------------------------------------------------------ factory
+  /** A raised belt along X that ends over the hatch. Items on it are pushed by the game. */
+  private buildConveyor(): void {
+    const C = this.level.conveyor!;
+    const len = C.x1 - C.x0;
+    const cx = (C.x0 + C.x1) / 2;
+    const top = 0.28;
+    const frame = plastic(0x3a3d42, { roughness: 0.5, metalness: 0.3 });
+    const hazard = plastic(0xffc928, { roughness: 0.4 });
+    const roller = plastic(0x9aa3ad, { roughness: 0.3, metalness: 0.6 });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(len, top - 0.02, C.width), frame);
+    base.position.set(cx, (top - 0.02) / 2, C.z);
+    this.bake(base);
+    for (const s of [-1, 1]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.08, 0.06), hazard);
+      rail.position.set(cx, top + 0.1, C.z + s * (C.width / 2 + 0.03));
+      this.bake(rail);
+      for (let i = 0; i < 4; i++) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.05), frame);
+        post.position.set(C.x0 + 0.2 + (i * (len - 0.4)) / 3, top + 0.04, C.z + s * (C.width / 2 + 0.03));
+        this.bake(post);
+      }
+    }
+    for (const x of [C.x0, C.x1]) {
+      const r = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, C.width - 0.02, 16), roller);
+      r.rotation.x = Math.PI / 2;
+      r.position.set(x, top - 0.13, C.z);
+      this.bake(r);
+    }
+    // Moving striped belt surface (texture offset animated in update()).
+    const cv = document.createElement('canvas');
+    cv.width = 64; cv.height = 32;
+    const ctx = cv.getContext('2d')!;
+    ctx.fillStyle = '#2b2d33'; ctx.fillRect(0, 0, 64, 32);
+    ctx.fillStyle = '#4a4f57';
+    ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(34, 16); ctx.lineTo(10, 32); ctx.lineTo(22, 32); ctx.lineTo(46, 16); ctx.lineTo(22, 0); ctx.fill();
+    this.beltTex = new THREE.CanvasTexture(cv);
+    this.beltTex.colorSpace = THREE.SRGBColorSpace;
+    this.beltTex.wrapS = this.beltTex.wrapT = THREE.RepeatWrapping;
+    this.beltTex.repeat.set(len / 0.4, 1);
+    const belt = new THREE.Mesh(new THREE.PlaneGeometry(len, C.width - 0.04), new THREE.MeshStandardMaterial({ map: this.beltTex, roughness: 0.8 }));
+    belt.rotation.x = -Math.PI / 2;
+    belt.position.set(cx, top + 0.003, C.z);
+    belt.receiveShadow = true;
+    this.root.add(belt);
+    // Physics: belt body and side rails.
+    this.addBox(cx, top / 2, C.z, len / 2, top / 2, C.width / 2, 0.6);
+    for (const s of [-1, 1]) this.addBox(cx, top + 0.1, C.z + s * (C.width / 2 + 0.03), len / 2, 0.06, 0.03, 0.3);
+  }
+
+  /** Is a local point on the belt (for grass, spawning)? */
+  private onBelt(x: number, z: number, pad = 0): boolean {
+    const C = this.level.conveyor;
+    return !!C && x > C.x0 - 0.2 - pad && x < C.x1 + pad && Math.abs(z - C.z) < C.width / 2 + 0.15 + pad;
+  }
+
+  // -------------------------------------------------------------- desert
+  private buildSand(): void {
+    const n = 70;
+    this.sandMat = new THREE.MeshBasicMaterial({ color: 0xf2d7a0, transparent: true, opacity: 0.4, depthWrite: false });
+    this.sand = new THREE.InstancedMesh(new THREE.BoxGeometry(0.35, 0.012, 0.012), this.sandMat, n);
+    for (let i = 0; i < n; i++) {
+      this.sandSeeds.push({ x: randRange(this.rng, -5.5, 5.5), y: randRange(this.rng, 0.1, 2.2), z: randRange(this.rng, -3.8, 3.8), s: randRange(this.rng, 0.7, 1.3) });
+    }
+    this.root.add(this.sand);
   }
 
   // -------------------------------------------------------------- platform
@@ -173,11 +264,11 @@ export class Diorama {
     this.root.add(shaft);
   }
 
-  private addBox(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, friction: number): void {
+  private addBox(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, friction: number, restitution?: number): void {
     this.phys.addFixedBox(
       { x: this.origin.x + cx, y: cy, z: this.origin.z + cz },
       { x: hx, y: hy, z: hz },
-      { groups: FLOOR_GROUPS, friction },
+      { groups: FLOOR_GROUPS, friction, restitution },
     );
   }
 
@@ -188,10 +279,10 @@ export class Diorama {
     const y = -hy;
     const h = HOLE.half;
     const f = this.theme.floorFriction;
-    this.addBox((-SLAB.hx + (HOLE.x - h)) / 2, y, 0, (HOLE.x - h + SLAB.hx) / 2, hy, SLAB.hz, f);
-    this.addBox((SLAB.hx + (HOLE.x + h)) / 2, y, 0, (SLAB.hx - (HOLE.x + h)) / 2, hy, SLAB.hz, f);
-    this.addBox(HOLE.x, y, (SLAB.hz + (HOLE.z + h)) / 2, h, hy, (SLAB.hz - (HOLE.z + h)) / 2, f);
-    this.addBox(HOLE.x, y, (-SLAB.hz + (HOLE.z - h)) / 2, h, hy, (HOLE.z - h + SLAB.hz) / 2, f);
+    this.addBox((-SLAB.hx + (HOLE.x - h)) / 2, y, 0, (HOLE.x - h + SLAB.hx) / 2, hy, SLAB.hz, f, this.theme.floorRestitution);
+    this.addBox((SLAB.hx + (HOLE.x + h)) / 2, y, 0, (SLAB.hx - (HOLE.x + h)) / 2, hy, SLAB.hz, f, this.theme.floorRestitution);
+    this.addBox(HOLE.x, y, (SLAB.hz + (HOLE.z + h)) / 2, h, hy, (SLAB.hz - (HOLE.z + h)) / 2, f, this.theme.floorRestitution);
+    this.addBox(HOLE.x, y, (-SLAB.hz + (HOLE.z - h)) / 2, h, hy, (HOLE.z - h + SLAB.hz) / 2, f, this.theme.floorRestitution);
   }
 
   /** Height of the island surface at a local point (0 except inside a lagoon). */
@@ -312,6 +403,7 @@ export class Diorama {
     if (Math.abs(x - HOLE.x) < HOLE.half + 0.2 && Math.abs(z - HOLE.z) < HOLE.half + 0.2) return true;
     if (Math.hypot(x - b.x, z - b.z) < BUTTON.radius + 0.2) return true;
     if (Math.abs(Math.abs(x) - GANTRY.postX) < 0.2 && Math.abs(Math.abs(z) - GANTRY.postZ) < 0.2) return true;
+    if (this.onBelt(x, z)) return true;
     for (const pool of this.pools()) {
       const px = (x - pool.x) / (pool.rx + 0.5);
       const pz = (z - pool.z) / (pool.rz + 0.5);
@@ -435,23 +527,26 @@ export class Diorama {
     bowlGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     bowlGeo.setIndex(idx);
     bowlGeo.computeVertexNormals();
-    this.bake(new THREE.Mesh(bowlGeo, plastic(pool.kind === 'lava' ? T.dirtDark : T.dirt, { roughness: 0.85 })));
+    const glowing = pool.kind === 'lava' || pool.kind === 'goo';
+    this.bake(new THREE.Mesh(bowlGeo, plastic(glowing ? T.dirtDark : T.dirt, { roughness: 0.85 })));
 
     let surface: THREE.Material;
-    if (pool.kind === 'lava') {
+    if (glowing) {
       this.lava = new THREE.MeshStandardMaterial({ color: T.pondColor, emissive: T.pondEmissive ?? T.pondColor, emissiveIntensity: 1.2, roughness: 0.4 });
       surface = this.lava;
     } else if (pool.kind === 'ice') {
       surface = plastic(T.pondColor, { roughness: 0.08, metalness: 0.1 });
     } else {
-      surface = createWaterMaterial(0x4fc3ff, 0x1f7fe8, 0.9, pool.rx > 0.8 ? 2.0 : 3.2);
+      const shallow = this.level.lagoon && pool.rx > 0.8 ? 0x4fc3ff : T.pondColor;
+      const deep = new THREE.Color(shallow).multiplyScalar(0.55).getHex();
+      surface = createWaterMaterial(shallow, deep, 0.9, pool.rx > 0.8 ? 2.0 : 3.2);
     }
     const surfaceY = -pool.depth * 0.38;
     const top = new THREE.Mesh(new THREE.CircleGeometry(1, 56), surface);
     top.rotation.x = -Math.PI / 2;
     top.position.set(pool.x, surfaceY, pool.z);
     top.scale.set(pool.rx * 0.985, pool.rz * 0.985, 1);
-    top.receiveShadow = pool.kind !== 'lava';
+    top.receiveShadow = !glowing;
     this.root.add(top);
     if (pool.kind === 'water') {
       const pad = new THREE.Mesh(new THREE.CircleGeometry(Math.min(0.11, pool.rx * 0.2), 12, 0.5, 5.4), toon(T.leaf));
@@ -460,7 +555,7 @@ export class Diorama {
       this.root.add(pad);
     }
     if (pool.kind === 'lava') {
-      const crackMat = new THREE.MeshStandardMaterial({ color: 0xff8c1a, emissive: 0xff4a00, emissiveIntensity: 1.0 });
+      const crackMat = new THREE.MeshStandardMaterial({ color: T.pondColor, emissive: T.pondEmissive ?? T.pondColor, emissiveIntensity: 1.0 });
       for (let i = 0; i < 5; i++) {
         const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, randRange(this.rng, 0.3, 0.6)), crackMat);
         const a = randRange(this.rng, 0, Math.PI * 2);
@@ -471,8 +566,8 @@ export class Diorama {
     }
 
     // Raised stone rim: chunky blocks around the edge.
-    const light = plastic(pool.kind === 'lava' ? 0x5a4d4d : T.woodLight, { roughness: 0.8 });
-    const dark = plastic(pool.kind === 'lava' ? 0x3b3238 : T.dirt, { roughness: 0.8 });
+    const light = plastic(glowing ? 0x5a4d4d : T.woodLight, { roughness: 0.8 });
+    const dark = plastic(glowing ? 0x3b3238 : T.dirt, { roughness: 0.8 });
     const rn = 1.16;
     const circ = 2 * Math.PI * ((pool.rx + pool.rz) / 2) * rn;
     const count = Math.max(10, Math.round(circ / 0.32));
@@ -618,6 +713,103 @@ export class Diorama {
         });
         break;
       }
+      case 'lollipop': {
+        const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3, 8), plastic(0xffffff, { roughness: 0.5 }));
+        stick.position.y = 0.65;
+        g.add(stick);
+        const head = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.16, 32), plastic(T.woodLight, { roughness: 0.25 }));
+        head.rotation.x = Math.PI / 2;
+        head.position.y = 1.55;
+        g.add(head);
+        for (const [r, c] of [[0.36, 0xffffff], [0.24, T.leaf], [0.12, 0xffffff]] as const) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.04, 8, 32), plastic(c, { roughness: 0.3 }));
+          ring.position.set(0, 1.55, 0.085);
+          g.add(ring);
+        }
+        break;
+      }
+      case 'smokestack': {
+        const brick = plastic(0x9b4a3a, { roughness: 0.8 });
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 1.8, 14), brick);
+        stack.position.y = 0.9;
+        g.add(stack);
+        const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.12, 14), plastic(0x3a3d42, { roughness: 0.5 }));
+        rim.position.y = 1.85;
+        g.add(rim);
+        const smoke = plastic(0xb8bec6, { roughness: 1 });
+        for (const [x, y, r] of [[0, 2.15, 0.22], [0.15, 2.45, 0.28], [0.35, 2.8, 0.33]]) {
+          const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), smoke);
+          puff.position.set(x, y, 0);
+          g.add(puff);
+        }
+        break;
+      }
+      case 'cactus': {
+        const green = plastic(0x4fae5a, { roughness: 0.55 });
+        const trunk = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 1.2, 4, 12), green);
+        trunk.position.y = 0.8;
+        g.add(trunk);
+        for (const [s, h] of [[-1, 0.9], [1, 1.2]] as const) {
+          const out = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.25, 4, 10), green);
+          out.rotation.z = Math.PI / 2;
+          out.position.set(s * 0.32, h, 0);
+          g.add(out);
+          const up = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.35, 4, 10), green);
+          up.position.set(s * 0.45, h + 0.25, 0);
+          g.add(up);
+        }
+        const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), plastic(0xff5577, { roughness: 0.4 }));
+        bloom.position.y = 1.62;
+        g.add(bloom);
+        break;
+      }
+      case 'deadtree': {
+        const bark = plastic(T.wood, { roughness: 0.8 });
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.18, 1.5, 7), bark);
+        trunk.position.y = 0.75;
+        trunk.rotation.z = 0.08;
+        g.add(trunk);
+        for (const [y, a, l] of [[1.1, 0.9, 0.6], [1.3, -1.0, 0.5], [0.8, -0.6, 0.45], [1.45, 0.4, 0.4]]) {
+          const br = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.05, l, 6), bark);
+          br.position.set(Math.sin(a) * l * 0.45, y + Math.cos(a) * l * 0.3, 0);
+          br.rotation.z = -a;
+          g.add(br);
+        }
+        const stone = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.45, 0.1, 3, 0.05), plastic(0x8a8f99, { roughness: 0.85 }));
+        stone.position.set(0.45, 0.22, 0.3);
+        stone.rotation.z = 0.12;
+        g.add(stone);
+        break;
+      }
+      case 'pylon': {
+        const steel = plastic(0x9aa3ad, { roughness: 0.3, metalness: 0.6 });
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 1.7, 10), steel);
+        pole.position.y = 0.85;
+        g.add(pole);
+        for (const y of [0.6, 1.1]) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.03, 8, 24), plastic(T.woodLight, { emissive: T.woodLight, emissiveIntensity: 0.8 }));
+          ring.rotation.x = Math.PI / 2;
+          ring.position.y = y;
+          g.add(ring);
+        }
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 12), plastic(T.leafLight, { emissive: T.leafLight, emissiveIntensity: 1.4 }));
+        orb.position.y = 1.85;
+        g.add(orb);
+        break;
+      }
+      case 'cloudpuff': {
+        const white = plastic(0xffffff, { roughness: 0.8 });
+        const pink = plastic(T.leafLight, { roughness: 0.8 });
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.9, 8), plastic(T.wood, { roughness: 0.4, metalness: 0.4 }));
+        stem.position.y = 0.45;
+        g.add(stem);
+        for (const [x, y, z, r, m] of [[0, 1.1, 0, 0.45, white], [0.35, 1.25, 0.1, 0.33, pink], [-0.35, 1.2, -0.05, 0.32, white], [0, 1.45, 0, 0.3, pink]] as const) {
+          const b = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), m);
+          b.position.set(x, y, z);
+          g.add(b);
+        }
+        break;
+      }
       case 'spire': {
         const rockMat = plastic(T.dirtDark, { roughness: 0.9, flat: true });
         const spires: [number, number, number, number][] = [[0, 0.45, 1.9, 0], [0.45, 0.3, 1.1, 0.2], [-0.4, 0.25, 0.9, -0.15]];
@@ -634,6 +826,84 @@ export class Diorama {
       }
     }
     g.scale.setScalar(scale);
+    return g;
+  }
+
+  /** A small building that tells you where you are. */
+  private makeLandmark(kind: NonNullable<ThemeDef['landmark']>): THREE.Group {
+    const g = new THREE.Group();
+    const T = this.theme;
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, ry = 0) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.rotation.y = ry;
+      m.castShadow = true;
+      g.add(m);
+      return m;
+    };
+    const windowGlow = (hex: number) => new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 1.2 });
+    switch (kind) {
+      case 'house':
+      case 'gingerbread': {
+        const ginger = kind === 'gingerbread';
+        const wall = plastic(ginger ? 0xa0633c : 0x4a3a55, { roughness: 0.8 });
+        const roof = plastic(ginger ? 0xffffff : 0x2a2230, { roughness: 0.6 });
+        add(new THREE.BoxGeometry(1.1, 0.8, 0.9), wall, 0, 0.4, 0, 0.3);
+        const r = add(new THREE.ConeGeometry(0.88, 0.7, 4), roof, 0, 1.15, 0, Math.PI / 4 + 0.3);
+        r.scale.z = 0.85;
+        add(new THREE.BoxGeometry(0.5, 0.55, 0.45), wall, 0.25, 1.05, -0.1, 0.3);
+        add(new THREE.ConeGeometry(0.4, 0.5, 4), roof, 0.25, 1.55, -0.1, Math.PI / 4 + 0.3);
+        const win = ginger ? plastic(0xff8fc7, { roughness: 0.3 }) : windowGlow(0xffb12b);
+        for (const [x, y] of [[-0.25, 0.5], [0.22, 0.5], [0.25, 1.08]]) add(new THREE.BoxGeometry(0.18, 0.2, 0.02), win, x, y, 0.47, 0.3);
+        add(new THREE.BoxGeometry(0.22, 0.36, 0.02), plastic(ginger ? 0xff5a7a : 0x241d1a), -0.02, 0.18, 0.46, 0.3);
+        if (ginger) for (let i = 0; i < 6; i++) add(new THREE.SphereGeometry(0.06, 10, 8), plastic([0xff5a7a, 0x7fe3ff, 0xffe066][i % 3], { roughness: 0.3 }), -0.5 + i * 0.2, 0.82, 0.46, 0.3);
+        break;
+      }
+      case 'factory': {
+        const wall = plastic(0x7a8088, { roughness: 0.6, metalness: 0.2 });
+        add(new THREE.BoxGeometry(1.4, 0.7, 0.9), wall, 0, 0.35, 0);
+        for (let i = 0; i < 3; i++) {
+          const saw = add(new THREE.CylinderGeometry(0.01, 0.32, 0.4, 3), plastic(0x5a5f66, { roughness: 0.6 }), -0.46 + i * 0.46, 0.88, 0);
+          saw.rotation.z = Math.PI / 2;
+          saw.rotation.y = Math.PI / 2;
+        }
+        add(new THREE.CylinderGeometry(0.12, 0.16, 1.4, 12), plastic(0x9b4a3a, { roughness: 0.8 }), 0.5, 1.0, -0.25);
+        for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(0.2, 0.15, 0.02), windowGlow(0xffd23f), -0.5 + i * 0.33, 0.4, 0.46);
+        break;
+      }
+      case 'pyramid': {
+        const stone = plastic(T.woodLight, { roughness: 0.85, flat: true });
+        add(new THREE.ConeGeometry(1.0, 1.2, 4), stone, 0, 0.6, 0, Math.PI / 4);
+        add(new THREE.ConeGeometry(0.16, 0.2, 4), plastic(0xffc928, { metalness: 0.6, roughness: 0.25 }), 0, 1.15, 0, Math.PI / 4);
+        add(new THREE.BoxGeometry(0.22, 0.3, 0.05), plastic(0x3a2a24), 0, 0.15, 0.7);
+        break;
+      }
+      case 'tower': {
+        const steel = plastic(0xd8e0ea, { roughness: 0.25, metalness: 0.5 });
+        add(new THREE.CylinderGeometry(0.25, 0.45, 1.6, 16), steel, 0, 0.8, 0);
+        const dome = add(new THREE.SphereGeometry(0.45, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), plastic(T.woodLight, { roughness: 0.1, transparent: true, opacity: 0.6, emissive: T.woodLight, emissiveIntensity: 0.4 }), 0, 1.6, 0);
+        dome.castShadow = false;
+        for (let i = 0; i < 3; i++) {
+          const ring = add(new THREE.TorusGeometry(0.42 - i * 0.06, 0.025, 8, 28), windowGlow(T.leafLight), 0, 0.4 + i * 0.4, 0);
+          ring.rotation.x = Math.PI / 2;
+        }
+        break;
+      }
+      case 'castle': {
+        const stone = plastic(0xf6f8ff, { roughness: 0.6 });
+        const gold = plastic(T.wood, { roughness: 0.3, metalness: 0.5 });
+        add(new THREE.BoxGeometry(1.0, 0.6, 0.7), stone, 0, 0.3, 0);
+        for (const x of [-0.5, 0.5]) {
+          add(new THREE.CylinderGeometry(0.2, 0.22, 1.1, 14), stone, x, 0.55, 0);
+          add(new THREE.ConeGeometry(0.26, 0.45, 14), plastic(0xff9fcf, { roughness: 0.4 }), x, 1.32, 0);
+          add(new THREE.SphereGeometry(0.05, 8, 6), gold, x, 1.58, 0);
+        }
+        add(new THREE.CylinderGeometry(0.24, 0.26, 1.4, 14), stone, 0, 0.7, -0.15);
+        add(new THREE.ConeGeometry(0.3, 0.55, 14), plastic(0xff9fcf, { roughness: 0.4 }), 0, 1.68, -0.15);
+        add(new THREE.BoxGeometry(0.24, 0.32, 0.02), gold, 0, 0.16, 0.36);
+        break;
+      }
+    }
     return g;
   }
 
@@ -655,15 +925,17 @@ export class Diorama {
   }
 
   private buildFloatingIslands(): void {
+    const lm = this.theme.landmark;
     const defs: { x: number; y: number; z: number; r: number; tree: number; phase: number }[] = [
-      { x: -6.0, y: -0.5, z: -1.6, r: 1.1, tree: 1.0, phase: 0 },
+      { x: lm ? -6.3 : -6.0, y: -0.5, z: -1.6, r: lm ? 1.4 : 1.1, tree: 1.0, phase: 0 },
       { x: 6.1, y: -0.2, z: -2.4, r: 1.0, tree: 0.85, phase: 2 },
       { x: 5.9, y: -1.1, z: 1.6, r: 0.7, tree: 0.55, phase: 4 },
       { x: -5.6, y: -1.4, z: 1.8, r: 0.6, tree: 0, phase: 1 },
     ];
-    for (const d of defs) {
+    defs.forEach((d, i) => {
       const g = this.makeIsland(d.r);
-      if (d.tree > 0) g.add(this.makeTree(d.tree));
+      if (i === 0 && lm) g.add(this.makeLandmark(lm));
+      else if (d.tree > 0) g.add(this.makeTree(d.tree));
       else {
         const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.28, 0), plastic(PAL.stone, { roughness: 0.8, flat: true }));
         rock.position.y = 0.2;
@@ -677,7 +949,7 @@ export class Diorama {
       merged.position.set(d.x, d.y, d.z);
       this.root.add(merged);
       this.islands.push({ group: merged, baseY: d.y, phase: d.phase });
-    }
+    });
     const { SLAB } = LAYOUT;
     const t1 = this.makeTree(0.8);
     t1.position.set(-SLAB.hx + 0.6, 0, -SLAB.hz + 0.55);

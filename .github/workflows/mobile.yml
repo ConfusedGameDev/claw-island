@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      PLAY_SA_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -94,6 +95,18 @@ jobs:
             -PversionCode=${{ github.run_number }} \
             -PversionName=${{ needs.web.outputs.version }}
           echo "::notice::No ANDROID_KEYSTORE_BASE64 secret: built a debug APK. Run the mobile-port android-keystore script to get signed release builds."
+      - name: Upload to Google Play (internal testing track)
+        if: env.KEYSTORE_B64 != '' && env.PLAY_SA_JSON != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: dev.confusedgame.clawisland
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+      - name: Google Play upload skipped
+        if: env.KEYSTORE_B64 == '' || env.PLAY_SA_JSON == ''
+        run: echo "::notice::No PLAY_SERVICE_ACCOUNT_JSON secret (or no keystore): the .aab is an artifact only. Run the mobile-port play-secrets script to publish to the internal testing track."
       - uses: actions/upload-artifact@v7
         with:
           name: android

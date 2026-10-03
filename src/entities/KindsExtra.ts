@@ -268,10 +268,15 @@ export const EXTRA_KINDS: Record<string, KindDef> = {
       const wgeo = new THREE.ExtrudeGeometry(wing, { depth: 0.01, bevelEnabled: false });
       const wmat = plastic(0x52385f, { roughness: 0.5 });
       for (const s of [-1, 1]) {
-        const w = mesh(wgeo, wmat, s * 0.04, 0.01, 0);
+        const w = mesh(wgeo, wmat);
         w.rotation.set(-Math.PI / 2, 0, 0);
         w.scale.x = s;
-        g.add(w);
+        // Hinged at the shoulder so a flying bat can flap (see BatFlight).
+        const pivot = group(w);
+        pivot.name = 'wing';
+        pivot.position.set(s * 0.04, 0.01, 0);
+        pivot.userData.side = s;
+        g.add(pivot);
       }
       for (const s of [-1, 1]) {
         g.add(mesh(new THREE.ConeGeometry(0.02, 0.05, 4), fur, s * 0.035, 0.08, 0.02));

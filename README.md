@@ -33,7 +33,9 @@ A kawaii-horror take on the same ten-island run:
 | 10 | Witch's Sky | low gravity (Cloud Kingdom) |
 
 **Opening the hatch.** Each island guards its hatch in its own way; a few
-later ones combine two:
+later ones combine two. Working it out is part of the puzzle: the
+instruction and the "Open the hatch" checklist only appear if the hatch is
+still shut after 30 seconds of play.
 
 | Gate | How it opens | Islands |
 |---|---|---|
@@ -66,6 +68,10 @@ random power-up for the next island:
   alive.
 - The music ducks while the game is paused, and it can be switched off from
   the pause menu.
+
+**Look at it.** Tap your monster in the pause menu, on an island's results or
+on the final screen to open a 3D viewer: drag to turn it, pinch (or scroll) to
+zoom.
 
 **Share it.** After the tenth island you can name your monster and share it
 as a picture with a link to the game:
@@ -118,6 +124,9 @@ Each island:
 | `Space` / `Enter`, or the DROP button | Drop the claw. While holding something: lower and release it |
 | `Esc`, or the on-screen pause button | Pause: resume, restart the island, jump to any unlocked island, and (Spooky Night) see the monster so far |
 | `P` | Toggle physics collider wireframes |
+
+Leaving the app (switching apps, locking the phone, hiding the tab) pauses the
+game and silences the music.
 | `M` | Mute sound |
 
 Add `?seed=123` to the URL to replay a specific layout. "Same layout" on the

@@ -6,10 +6,17 @@ export class Sfx {
   private master: GainNode | null = null;
   muted = false;
 
-  /** Must be called from a user gesture (mobile Safari). */
+  /** Set while the app is in the background: nothing may wake the audio then. */
+  private hidden = false;
+
+  /**
+   * Must be called from a user gesture (mobile Safari). Also wakes a context
+   * the OS suspended or interrupted (iOS reports 'interrupted' after a call,
+   * Siri, or coming back from the background).
+   */
   unlock(): void {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      if (!this.hidden && this.ctx.state !== 'running') void this.ctx.resume().catch(() => { /* retried on the next tap */ });
       return;
     }
     try {
@@ -20,6 +27,18 @@ export class Sfx {
     } catch {
       this.ctx = null;
     }
+  }
+
+  /** App went to the background: silence everything (music included). */
+  suspend(): void {
+    this.hidden = true;
+    if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend().catch(() => { /* ignore */ });
+  }
+
+  /** App is back in front: let sound play again (iOS may still need a tap, handled by unlock()). */
+  wake(): void {
+    this.hidden = false;
+    this.unlock();
   }
 
   /** The shared audio context and master bus, once unlocked (music plays through them too). */

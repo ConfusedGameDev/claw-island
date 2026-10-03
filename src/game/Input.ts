@@ -11,6 +11,8 @@ export class Input {
   private anyQueued = false;
   /** Fired on the very first user gesture (used to unlock audio). */
   onFirstGesture: (() => void) | null = null;
+  /** Fired on every tap or key press (iOS needs a gesture to wake suspended audio). */
+  onGesture: (() => void) | null = null;
   private gestured = false;
 
   constructor() {
@@ -32,9 +34,16 @@ export class Input {
   }
 
   private gesture(): void {
+    this.onGesture?.();
     if (this.gestured) return;
     this.gestured = true;
     this.onFirstGesture?.();
+  }
+
+  /** Forget held keys and touch buttons (the app lost focus mid-press). */
+  releaseAll(): void {
+    this.keys.clear();
+    for (const k of Object.keys(this.touch) as TouchDir[]) this.touch[k] = false;
   }
 
   setTouch(dir: TouchDir, pressed: boolean): void {

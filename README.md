@@ -102,6 +102,13 @@ once the apps are approved.
 The original islands, unchanged. Classic progress and best score keep their
 old save keys.
 
+Classic has its own tune, "Island Hop": a bright C-major melody in 4/4, also
+synthesized live. Each island gets an arrangement to match its theme (flute on
+the Meadow, steel drums on the Beach, chiptune in the Future Lab...).
+
+The pause menu of each campaign has a button that jumps to the other one
+(Play Spooky Night / Play Classic islands); each keeps its own progress.
+
 ## How to play
 
 Ten islands float in a line. Clear one and the crane's rails extend across the
@@ -239,6 +246,6 @@ src/
   ui/Hud.ts               DOM overlay: timer, attempts, target cards, intro/results, monster screen
   ui/Share.ts             share card composition and native/web sharing
   audio/Sfx.ts            WebAudio synth cues
-  audio/Music.ts          Spooky Night soundtrack: lookahead sequencer, score and per-island arrangements
+  audio/Music.ts          soundtracks (Monster Waltz, Island Hop): lookahead sequencer, scores and per-island arrangements
   ui/Icons.ts             drawn SVG icons used across the HUD (the UI uses no emoji)
 ```

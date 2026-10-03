@@ -21,12 +21,12 @@ import { ICONS } from '../ui/Icons';
 import { MonsterViewer } from '../ui/MonsterViewer';
 import { Input } from './Input';
 import { Sfx } from '../audio/Sfx';
-import { Music, TITLE_ARRANGEMENT } from '../audio/Music';
+import { Music } from '../audio/Music';
 import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
 import { LAYOUT } from './Layout';
 import { gateZones, levelGates, type LevelDef } from './Levels';
 import { createGate, type Gate, type GateEnv, type GoalCard } from './Gates';
-import { DEBUG_TOOLS, type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
+import { CAMPAIGNS, DEBUG_TOOLS, type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
 import { MONSTERS, MonsterPortrait, SLOTS, monsterName, newMonsterSeed, pieceLabel, rollPiece, swatchCss, type MonsterBuild, type Slot } from './Monster';
 import { composeCard, prepareCard, saveCard, shareCard, type PartChip } from '../ui/Share';
 import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle, windValue } from '../util/math';
@@ -172,7 +172,7 @@ export class Game {
       // Missing parts show as ghostly outlines until the monster is finished.
       this.viewer.open(this.pieces, title ?? 'Your monster', !done);
     };
-    this.music = campaign.rewardsPieces ? new Music(this.sfx) : null;
+    this.music = new Music(this.sfx, campaign.rewardsPieces ? 'spooky' : 'classic');
     this.input.onFirstGesture = () => { this.sfx.unlock(); this.music?.kick(); };
     this.input.onGesture = () => { this.sfx.unlock(); this.music?.kick(); };
     this.icons = renderIcons([
@@ -265,7 +265,7 @@ export class Game {
   // ------------------------------------------------------------- lifecycle
   /** New run from level 1 (shows the intro, with a resume option if any). */
   reset(seed?: number): void {
-    this.music?.play(TITLE_ARRANGEMENT);
+    this.music?.playTitle();
     this.music?.duck(0);
     this.prepare(0, seed);
     this.setPhase('INTRO');
@@ -550,6 +550,10 @@ export class Game {
       onRestart: () => this.jumpTo(this.currentLevel),
       onJump: (i) => this.jumpTo(i),
       music: this.music ? { on: this.music.enabled, toggle: () => this.music!.toggle() } : undefined,
+      switchTo: (() => {
+        const other = CAMPAIGNS[this.campaign.id === 'classic' ? 'halloween' : 'classic'];
+        return { label: other.rewardsPieces ? 'Play Spooky Night' : 'Play Classic islands', icon: other.tabIcon, go: () => switchCampaign(other.id) };
+      })(),
       debug: DEBUG_TOOLS && this.debugUnlocked ? {
         onOpenGate: this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugOpenGate(); } : undefined,
         onComplete: this.collecting || this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugComplete(); } : undefined,
@@ -804,10 +808,14 @@ export class Game {
     let best = 0;
     try { best = Number(localStorage.getItem(this.campaign.bestKey) ?? 0); } catch { /* ignore */ }
     try { localStorage.setItem(this.campaign.bestKey, String(Math.max(best, total))); } catch { /* ignore */ }
-    if (!this.music) this.sfx.fanfare();
+    if (!this.campaign.rewardsPieces) {
+      this.sfx.fanfare();
+      this.music?.playTitle();
+      this.music?.duck(0);
+    }
     if (this.campaign.rewardsPieces) {
       this.music?.cueAlive();
-      this.music?.play(TITLE_ARRANGEMENT);
+      this.music?.playTitle();
       this.music?.duck(0);
       // The run is over: the next one starts from the first island with a new monster.
       try { localStorage.setItem(this.campaign.progressKey, '0'); } catch { /* ignore */ }

@@ -1,14 +1,16 @@
 import type { Sfx } from './Sfx';
 
 /**
- * Spooky Night's music: one little waltz in D minor ("the Monster Waltz"),
- * re-orchestrated for every island. Everything is synthesized with WebAudio
- * and scheduled ahead of time by a small lookahead sequencer.
+ * The game's music, one tune per campaign, re-orchestrated for every island:
+ * - Spooky Night: a little waltz in D minor ("the Monster Waltz").
+ * - Classic: a sunny hop in C major, in four ("Island Hop").
+ * Everything is synthesized with WebAudio and scheduled ahead of time by a
+ * small lookahead sequencer.
  */
 
 // --------------------------------------------------------------- the score
-// 3/4 time, written in eighth notes: 6 steps per bar. Tokens are NOTE:steps,
-// "-" is a rest.
+// Written in eighth notes (6 steps per bar in 3/4, 8 in 4/4). Tokens are
+// NOTE:steps, "-" is a rest.
 const MELODY_A1 = [
   'A4:2 D5:2 F5:2', 'E5:2 D5:2 A4:2', 'Bb4:2 D5:2 G5:2', 'F5:4 E5:2',
   'C#5:2 E5:2 A5:2', 'G5:2 F5:2 E5:2', 'F5:3 E5:1 D5:2', 'D5:6',
@@ -26,19 +28,15 @@ const CHORDS_A1 = ['Dm', 'Dm', 'Gm', 'Gm', 'A7', 'A7', 'Dm', 'Dm'];
 const CHORDS_A2 = ['Bb', 'Bb', 'Gm', 'Gm', 'Edim', 'A7', 'Dm', 'Dm'];
 const CHORDS_B = ['F', 'F', 'C', 'C', 'Dm', 'Dm', 'A7', 'A7'];
 
-/** Form: A1 A2 B A2, 32 bars, then round again. */
-const FORM: { melody: string; chord: string }[] = [
-  ...MELODY_A1.map((m, i) => ({ melody: m, chord: CHORDS_A1[i] })),
-  ...MELODY_A2.map((m, i) => ({ melody: m, chord: CHORDS_A2[i] })),
-  ...MELODY_B.map((m, i) => ({ melody: m, chord: CHORDS_B[i] })),
-  ...MELODY_A2.map((m, i) => ({ melody: m, chord: CHORDS_A2[i] })),
-];
+/** A tune: its bars (melody + chord name), chord voicings and bar length in eighths. */
+export interface Song { bars: { notes: Note[]; chord: string }[]; tones: Record<string, number[]>; steps: 6 | 8 }
 
-/** Chord tones as MIDI notes around octave 3 (root first). */
-const CHORD_TONES: Record<string, number[]> = {
-  Dm: [50, 53, 57], Gm: [55, 58, 62], A7: [57, 61, 64, 67], Bb: [58, 62, 65],
-  Edim: [52, 55, 58], F: [53, 57, 60], C: [48, 52, 55],
-};
+/** Form A1 A2 B A2 (32 bars, then round again). */
+function song(steps: 6 | 8, parts: [string[], string[]][], tones: Record<string, number[]>): Song {
+  const [a1, a2, b] = parts;
+  const form = [a1, a2, b, a2].flatMap(([mel, ch]) => mel.map((m, i) => ({ notes: parseBar(m), chord: ch[i] })));
+  return { bars: form, tones, steps };
+}
 
 const NOTE_INDEX: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
@@ -62,12 +60,41 @@ function parseBar(bar: string): Note[] {
   return out;
 }
 
-const BARS = FORM.map((b) => ({ notes: parseBar(b.melody), chord: b.chord }));
+/** Spooky Night: the Monster Waltz (chord tones as MIDI notes around octave 3, root first). */
+export const MONSTER_WALTZ = song(6, [[MELODY_A1, CHORDS_A1], [MELODY_A2, CHORDS_A2], [MELODY_B, CHORDS_B]], {
+  Dm: [50, 53, 57], Gm: [55, 58, 62], A7: [57, 61, 64, 67], Bb: [58, 62, 65],
+  Edim: [52, 55, 58], F: [53, 57, 60], C: [48, 52, 55],
+});
+
+// Classic: "Island Hop", a bright tune in C major, in four.
+const HOP_A1 = [
+  'E5:2 G5:2 C6:3 G5:1', 'A5:2 G5:2 E5:4', 'F5:2 A5:2 C6:3 A5:1', 'G5:6 -:2',
+  'E5:2 A5:2 C6:2 A5:2', 'F5:2 A5:2 G5:2 F5:2', 'D5:2 G5:2 F5:2 D5:2', 'C5:6 -:2',
+];
+const HOP_A2 = [
+  'E5:1 F5:1 G5:2 E5:2 C5:2', 'B4:2 E5:2 G5:4', 'A5:2 C6:2 F6:3 E6:1', 'E6:2 C6:2 G5:4',
+  'F5:2 A5:2 D6:3 C6:1', 'B5:2 D6:2 G5:4', 'G5:2 F5:2 E5:2 D5:2', 'C5:4 -:4',
+];
+// The bridge wanders through the minor chords, then a G7 springboard home.
+const HOP_B = [
+  'A5:3 G5:1 F5:4', 'B4:2 D5:2 G5:4', 'E5:2 G5:2 B5:4', 'A5:2 C6:2 E6:4',
+  'D6:2 C6:2 A5:2 F5:2', 'G5:2 B5:2 D6:4', 'E6:2 D6:2 C6:2 G5:2', 'F5:2 D5:2 B4:2 G4:2',
+];
+export const ISLAND_HOP = song(8, [
+  [HOP_A1, ['C', 'C', 'F', 'G', 'Am', 'F', 'G7', 'C']],
+  [HOP_A2, ['C', 'Em', 'F', 'C', 'Dm', 'G7', 'G7', 'C']],
+  [HOP_B, ['F', 'G', 'Em', 'Am', 'Dm', 'G', 'C', 'G7']],
+], {
+  C: [48, 52, 55], F: [53, 57, 60], G: [55, 59, 62], G7: [55, 59, 62, 65],
+  Am: [57, 60, 64], Em: [52, 55, 59], Dm: [50, 53, 57],
+});
 
 // ---------------------------------------------------------- arrangements
-type Inst = 'musicbox' | 'celesta' | 'harpsichord' | 'pizz' | 'theremin' | 'organ' | 'xylo' | 'bubble';
+type Inst = 'musicbox' | 'celesta' | 'harpsichord' | 'pizz' | 'theremin' | 'organ' | 'xylo' | 'bubble' | 'flute' | 'steel' | 'chip';
 
 export interface Arrangement {
+  /** The tune (defaults to the Monster Waltz). */
+  song?: Song;
   bpm: number;
   transpose: number;
   lead: Inst | null;
@@ -117,8 +144,40 @@ export const ARRANGEMENTS: Arrangement[] = [
   { bpm: 100, transpose: 3, lead: 'musicbox', counter: 'celesta', bass: 'pizz', chords: 'celesta', arp: true, reverb: 0.6 },
 ];
 
+/** Classic: the title, then one per Classic island. */
+const HOP = ISLAND_HOP;
+export const CLASSIC_TITLE: Arrangement = { song: HOP, bpm: 104, transpose: 0, lead: 'musicbox', bass: 'pizz', chords: 'celesta', arp: true, reverb: 0.45 };
+export const CLASSIC_ARRANGEMENTS: Arrangement[] = [
+  // 1 Meadow: a breezy flute over plucked strings.
+  { song: HOP, bpm: 116, transpose: 0, lead: 'flute', bass: 'pizz', chords: 'celesta', reverb: 0.3 },
+  // 2 Beach: steel drums and a shaker tick.
+  { song: HOP, bpm: 120, transpose: 2, lead: 'steel', bass: 'pizz', chords: 'steel', perc: 'tick', reverb: 0.25 },
+  // 3 Candy Land: up a fourth, bouncy music box and bubbles.
+  { song: HOP, bpm: 136, transpose: 5, lead: 'musicbox', bass: 'bubble', chords: 'musicbox', staccato: true, perc: 'xylo', reverb: 0.2 },
+  // 4 Snowfield: a celesta in the snow, soft organ pad.
+  { song: HOP, bpm: 92, transpose: 0, lead: 'celesta', leadOctave: 1, bass: 'pizz', chords: null, pad: 'organ', sparse: true, reverb: 0.7 },
+  // 5 Factory: xylophone and a clanking woodblock.
+  { song: HOP, bpm: 128, transpose: 0, lead: 'xylo', bass: 'pizz', chords: 'harpsichord', perc: 'tick', staccato: true, reverb: 0.2 },
+  // 6 Desert Ruins: harpsichord and a dry tick, a tone down.
+  { song: HOP, bpm: 104, transpose: -2, lead: 'harpsichord', bass: 'pizz', chords: 'pizz', perc: 'tick', reverb: 0.3 },
+  // 7 Haunted House: the theremin borrows the tune.
+  { song: HOP, bpm: 96, transpose: -3, lead: 'theremin', counter: 'celesta', bass: 'pizz', chords: null, pad: 'organ', reverb: 0.55 },
+  // 8 Volcano: big organ and a rumbling bass.
+  { song: HOP, bpm: 112, transpose: -5, lead: 'organ', bass: 'organ', chords: 'harpsichord', perc: 'tick', reverb: 0.4 },
+  // 9 Future Lab: chiptune arpeggios.
+  { song: HOP, bpm: 132, transpose: 2, lead: 'chip', bass: 'pizz', chords: 'chip', arp: true, perc: 'tick', reverb: 0.2, volume: 0.45 },
+  // 10 Cloud Kingdom: airy flute with a celesta counter-melody.
+  { song: HOP, bpm: 108, transpose: 3, lead: 'flute', counter: 'celesta', bass: 'pizz', chords: 'celesta', arp: true, reverb: 0.6 },
+];
+
+/** Each campaign's music: title, islands and the island-cleared cue. */
+const SETS = {
+  spooky: { title: TITLE_ARRANGEMENT, islands: ARRANGEMENTS, clear: [62, 65, 69, 74], bell: [74, 77, 81], root: 50 },
+  classic: { title: CLASSIC_TITLE, islands: CLASSIC_ARRANGEMENTS, clear: [60, 64, 67, 72], bell: [72, 76, 79], root: 48 },
+} as const;
+export type MusicSet = keyof typeof SETS;
+
 const MUSIC_KEY = 'clawisland.music';
-const STEPS_PER_BAR = 6;
 const LOOKAHEAD = 0.12;
 
 const freq = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
@@ -146,8 +205,13 @@ export class Music {
     noise: AudioBuffer;
   } | null = null;
 
-  constructor(private sfx: Sfx) {
+  constructor(private sfx: Sfx, private set: MusicSet = 'spooky') {
     try { this.enabled = localStorage.getItem(MUSIC_KEY) !== 'off'; } catch { /* ignore */ }
+  }
+
+  /** This campaign's title-screen music. */
+  playTitle(): void {
+    this.play(SETS[this.set].title);
   }
 
   /** Start (or switch to) an arrangement. Safe to call before audio is unlocked. */
@@ -159,7 +223,8 @@ export class Music {
   }
 
   playIsland(index: number): void {
-    this.play(ARRANGEMENTS[index % ARRANGEMENTS.length]);
+    const list = SETS[this.set].islands;
+    this.play(list[index % list.length]);
   }
 
   stop(): void {
@@ -194,9 +259,10 @@ export class Music {
     if (!n || !this.enabled) return;
     const t = n.ctx.currentTime + 0.05;
     this.holdUntil = t + 1.6;
-    [62, 65, 69, 74].forEach((m, i) => this.voice('harpsichord', t + i * 0.11, m, 0.3, 0.5));
-    for (const m of [74, 77, 81]) this.voice('musicbox', t + 0.5, m, 1.2, 0.35);
-    this.voice('pizz', t + 0.5, 50, 0.6, 0.6);
+    const cue = SETS[this.set];
+    cue.clear.forEach((m, i) => this.voice('harpsichord', t + i * 0.11, m, 0.3, 0.5));
+    for (const m of cue.bell) this.voice('musicbox', t + 0.5, m, 1.2, 0.35);
+    this.voice('pizz', t + 0.5, cue.root, 0.6, 0.6);
   }
 
   /** "It's alive!": the minor waltz finally resolves to D major. */
@@ -271,6 +337,8 @@ export class Music {
     if (this.nextTime < ctx.currentTime - 0.05) this.nextTime = ctx.currentTime + 0.05;
     while (this.nextTime < ctx.currentTime + LOOKAHEAD) {
       if (this.step === 0 && this.nextArr) {
+        // A different tune starts from its first bar.
+        if ((this.nextArr.song ?? MONSTER_WALTZ) !== this.song) this.bar = 0;
         this.arr = this.nextArr;
         this.nextArr = null;
       }
@@ -278,19 +346,25 @@ export class Music {
       const eighth = 60 / this.arr.bpm / 2;
       this.nextTime += eighth;
       this.step++;
-      if (this.step >= STEPS_PER_BAR) {
+      if (this.step >= this.song.steps) {
         this.step = 0;
-        this.bar = (this.bar + 1) % BARS.length;
+        this.bar = (this.bar + 1) % this.song.bars.length;
       }
     }
   }
 
+  private get song(): Song {
+    return this.arr.song ?? MONSTER_WALTZ;
+  }
+
   private scheduleStep(t: number): void {
     const a = this.arr;
-    const bar = BARS[this.bar];
+    const song = this.song;
+    const bar = song.bars[this.bar % song.bars.length];
     const eighth = 60 / a.bpm / 2;
     const tr = a.transpose;
-    const chord = CHORD_TONES[bar.chord];
+    const chord = song.tones[bar.chord];
+    const four = song.steps === 8;
     // Melody.
     const phrase = Math.floor(this.bar / 4);
     const melodyOn = !a.sparse || phrase % 2 === 0;
@@ -302,22 +376,24 @@ export class Music {
       if (melodyOn && a.lead) this.voice(a.lead, t, m + tr + 12 * (a.leadOctave ?? 0), dur, 0.55);
       if (a.counter && this.bar % 2 === 1) this.voice(a.counter, t + eighth * 0.02, m + tr + 12, dur * 0.8, 0.28);
     }
-    // Bass on the downbeat.
-    if (this.step === 0 && a.bass) this.voice(a.bass, t, chord[0] + tr - 12, eighth * 2.2, 0.6);
+    // Bass on the downbeat (in four: root on one, fifth on three).
+    if (a.bass && this.step === 0) this.voice(a.bass, t, chord[0] + tr - 12, eighth * 2.2, 0.6);
+    if (a.bass && four && this.step === 4) this.voice(a.bass, t, chord[2] + tr - 12, eighth * 2.2, 0.5);
     // Pad: the whole chord held for the bar.
-    if (this.step === 0 && a.pad) for (const m of chord.slice(0, 3)) this.voice(a.pad, t, m + tr, eighth * 5.8, 0.16);
-    // Chords: "pah-pah" on beats two and three, or a rolling arpeggio.
+    if (this.step === 0 && a.pad) for (const m of chord.slice(0, 3)) this.voice(a.pad, t, m + tr, eighth * (song.steps - 0.2), 0.16);
+    // Chords: "pah-pah" on the off-beats, or a rolling arpeggio.
     if (a.chords) {
       if (a.arp) {
-        const m = chord[[0, 1, 2, 1, 2, 1][this.step] % chord.length] + 12;
+        const pattern = four ? [0, 1, 2, 1, 0, 1, 2, 1] : [0, 1, 2, 1, 2, 1];
+        const m = chord[pattern[this.step] % chord.length] + 12;
         this.voice(a.chords, t, m + tr, eighth * 0.9, 0.22);
-      } else if (this.step === 2 || this.step === 4) {
+      } else if (four ? this.step === 2 || this.step === 6 : this.step === 2 || this.step === 4) {
         for (const m of chord.slice(1)) this.voice(a.chords, t, m + tr + 12, eighth * 0.8, 0.18);
       }
     }
     // Percussion.
     if (a.perc === 'tick' && this.step % 2 === 0) this.noiseHit(t, this.step === 0 ? 0.35 : 0.18, this.step === 0 ? 1400 : 2600);
-    if (a.perc === 'xylo' && this.step === 5) this.voice('xylo', t, chord[0] + tr + 24, eighth, 0.18);
+    if (a.perc === 'xylo' && this.step === song.steps - 1) this.voice('xylo', t, chord[0] + tr + 24, eighth, 0.18);
   }
 
   /** One synthesized note. */
@@ -408,6 +484,45 @@ export class Music {
         env.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.3);
         stopAt = t + dur + 0.35;
         this.lastLead = f;
+        break;
+      }
+      case 'flute': {
+        // Soft sine with a gentle swell and a little vibrato.
+        const o = osc('sine', f, 1);
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 5;
+        const depth = ctx.createGain();
+        depth.gain.value = f * 0.006;
+        lfo.connect(depth).connect(o.frequency);
+        lfo.start(t);
+        lfo.stop(t + dur + 0.25);
+        oscs.push(o, osc('sine', f * 2, 0.08), osc('triangle', f * 3, 0.03));
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(0.24 * vel, t + 0.05);
+        env.gain.setValueAtTime(0.2 * vel, t + Math.max(0.06, dur * 0.8));
+        env.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.18);
+        stopAt = t + dur + 0.25;
+        break;
+      }
+      case 'steel': {
+        // Steel drum: a bright, slightly inharmonic ping with a pitch drop at the start.
+        const o = osc('sine', f * 1.02, 1);
+        o.frequency.exponentialRampToValueAtTime(f, t + 0.03);
+        oscs.push(o, osc('sine', f * 2.01, 0.4), osc('sine', f * 3.9, 0.12));
+        pluck(0.3 * vel, 0.55, 0.55);
+        stopAt = t + 0.6;
+        break;
+      }
+      case 'chip': {
+        // Chiptune square with a quick decay.
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 4200;
+        env.disconnect();
+        env.connect(lp).connect(input);
+        oscs.push(osc('square', f, 0.5), osc('square', f * 2, 0.08, 7));
+        pluck(0.13 * vel, Math.min(0.45, dur + 0.1), dur + 0.1);
+        stopAt = t + Math.min(0.5, dur + 0.15);
         break;
       }
       case 'organ': {

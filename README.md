@@ -33,7 +33,9 @@ A kawaii-horror take on the same ten-island run:
 | 10 | Witch's Sky | low gravity (Cloud Kingdom) |
 
 **Opening the hatch.** Each island guards its hatch in its own way; a few
-later ones combine two:
+later ones combine two. Working it out is part of the puzzle: the
+instruction and the "Open the hatch" checklist only appear if the hatch is
+still shut after 30 seconds of play.
 
 | Gate | How it opens | Islands |
 |---|---|---|

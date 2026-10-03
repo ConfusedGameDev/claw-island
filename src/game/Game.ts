@@ -61,6 +61,8 @@ const BOOSTERS: Record<BoosterId, BoosterCard & { pill: (charges: number) => str
 
 export interface LevelResult { level: LevelDef; breakdown: ScoreBreakdown; stats: RunStats }
 
+/** Seconds (of play, pauses excluded) before the hatch hint appears. */
+const GATE_HINT_DELAY = 30;
 const BRIDGE_TIME = 0.8;
 const RIDE_TIME = 3.0;
 
@@ -110,6 +112,8 @@ export class Game {
   private booster: BoosterId | null = null;
   private pendingBooster: BoosterId | null = null;
   private boosterShown = false;
+  /** Whether the "how to open the hatch" hint is showing on this island. */
+  private gateHintShown = false;
   paused = false;
 
   constructor(canvas: HTMLCanvasElement, readonly campaign: Campaign) {
@@ -588,14 +592,13 @@ export class Game {
         this.hud.setBanner('');
         break;
       case 'PHASE_WEIGHT': {
-        const gates = this.cur.gates;
-        const first = gates.find((g) => !g.solved) ?? gates[0];
-        const multi = gates.length > 1 ? `${gates.length} seals guard the hatch` : '';
-        this.hud.setBanner(first?.instruction ?? 'The hatch is shut tight', multi || this.cur.def.hint || 'explore the island with the claw');
+        // No spoilers: work out how the hatch opens. The hint only shows if it stays shut a while.
+        this.gateHintShown = false;
+        this.hud.setBanner('The hatch is shut tight', this.cur.def.hint ?? 'explore the island with the claw');
         const env = this.gateEnv(this.cur);
-        for (const g of gates) g.activate(env);
+        for (const g of this.cur.gates) g.activate(env);
         this.refreshGoals();
-        this.hud.showGoals(true);
+        this.hud.showGoals(false);
         break;
       }
       case 'HOLE_OPENING':
@@ -791,6 +794,18 @@ export class Game {
     };
   }
 
+  /** Still stuck after a while: reveal how the hatch opens. */
+  private showGateHint(): void {
+    this.gateHintShown = true;
+    const gates = this.cur.gates;
+    const next = gates.find((g) => !g.solved) ?? gates[0];
+    const solved = gates.filter((g) => g.solved).length;
+    this.hud.setBanner(next.instruction, gates.length > 1 ? `${solved} of ${gates.length} seals broken` : 'Hint');
+    this.refreshGoals();
+    this.hud.showGoals(true);
+    this.sfx.returned();
+  }
+
   /** The "open the hatch" list in the HUD. */
   private refreshGoals(): void {
     const cards: GoalCard[] = this.cur.gates.flatMap((g) => g.goals());
@@ -810,7 +825,8 @@ export class Game {
     if (left.length > 0) {
       this.hud.toast('Seal broken!', 'good');
       this.sfx.deliver();
-      this.hud.setBanner(left[0].instruction, `${lv.gates.length - left.length} of ${lv.gates.length} seals broken`);
+      const progress = `${lv.gates.length - left.length} of ${lv.gates.length} seals broken`;
+      this.hud.setBanner(this.gateHintShown ? left[0].instruction : 'The hatch is still shut', progress);
       return;
     }
     if (gate.constructor.name === 'WeightGate') this.sfx.buttonPress();
@@ -849,6 +865,7 @@ export class Game {
     }
     this.phaseT += dt;
     if (this.phase === 'HOLE_OPENING' && this.phaseT >= 1.2) this.setPhase('PHASE_COLLECT');
+    if (this.phase === 'PHASE_WEIGHT' && !this.gateHintShown && this.phaseT >= GATE_HINT_DELAY) this.showGateHint();
     if (this.phase === 'INTRO' || this.phase === 'TRAVEL') this.input.consumeDrop();
     if (this.phase === 'TRAVEL') this.updateTravel(dt);
     const wind = this.cur.def.wind && this.phase !== 'TRAVEL' ? windValue(this.time) * this.cur.def.wind : 0;

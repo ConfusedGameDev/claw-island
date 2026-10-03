@@ -741,3 +741,12 @@ body.halloween .mini-stars i { color: #c9b8e6; }
 .goal-group { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); margin: 6px 4px 2px; }
 .targets.drawer.collapsed .goal-group { height: 2px; margin: 4px 6px; background: var(--ink-soft); opacity: 0.35; border-radius: 2px; }
 .targets.drawer.collapsed .goal-group span { display: none; }
+
+/* Facebook / X post buttons on the results and final screens. */
+.social-btns { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
+.social-label { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.social-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px; border: 0; font: inherit; font-size: 14px; font-weight: 800; color: #fff; cursor: pointer; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25); }
+.social-btn .icon { width: 18px; height: 18px; }
+.social-btn.fb { background: #1877f2; }
+.social-btn.x { background: #111; }
+.social-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }

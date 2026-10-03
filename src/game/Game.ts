@@ -683,6 +683,7 @@ export class Game {
       },
       onShare: (card) => shareCard(card, url),
       onSave: (card) => saveCard(card),
+      social: { text: (name) => `Meet ${name}, the Frankenstein I built in Claw Island: Spooky Night! 🎃`, url },
     }, () => this.reset(), () => this.sfx.star());
   }
 
@@ -751,7 +752,10 @@ export class Game {
           this.music.cueClear();
           this.music.duck(1);
         } else this.sfx.fanfare();
-        this.hud.showLevelResults(this.cur.def, b, this.stats, isLast, () => this.continueFromResults(), () => this.sfx.star(), this.awardPiece());
+        const social = this.campaign.rewardsPieces
+          ? { text: `I cleared ${this.cur.def.name} in Claw Island: Spooky Night with ${b.stars}/3 stars and ${b.total} points!`, url: gameUrl() }
+          : undefined;
+        this.hud.showLevelResults(this.cur.def, b, this.stats, isLast, () => this.continueFromResults(), () => this.sfx.star(), this.awardPiece(), social);
         break;
       }
     }

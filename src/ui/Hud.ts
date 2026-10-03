@@ -6,7 +6,7 @@ import { formatTime } from '../util/math';
 import type { Campaign, CampaignId } from '../game/Campaign';
 import { CAMPAIGNS } from '../game/Campaign';
 import { ICONS, withIcon, type IconName } from './Icons';
-import type { PartChip, PreparedCard, ShareOutcome } from './Share';
+import { facebookShareUrl, openExternal, xShareUrl, type PartChip, type PreparedCard, type ShareOutcome } from './Share';
 
 /** Colour dot + label chips for monster pieces. */
 const chips = (parts: PartChip[]): string =>
@@ -55,7 +55,12 @@ export interface MonsterFinal {
   prepare: (name: string) => Promise<PreparedCard>;
   onShare: (card: PreparedCard) => Promise<ShareOutcome>;
   onSave: (card: PreparedCard) => Promise<ShareOutcome>;
+  /** Facebook/X post text for a name, and the link the posts carry. */
+  social?: { text: (name: string) => string; url: string };
 }
+
+/** A Facebook/X post: its text and the link to the game. */
+export interface SocialPost { text: string; url: string }
 
 export interface TargetCard { kind: string; name: string; icon: string; isImage: boolean }
 
@@ -491,7 +496,7 @@ export class Hud {
   }
 
   showLevelResults(
-    level: LevelDef, b: ScoreBreakdown, stats: RunStats, isLast: boolean, onContinue: () => void, onStarSound: () => void, piece?: PieceReward,
+    level: LevelDef, b: ScoreBreakdown, stats: RunStats, isLast: boolean, onContinue: () => void, onStarSound: () => void, piece?: PieceReward, social?: SocialPost,
   ): void {
     this.overlay.classList.remove('hidden');
     this.overlay.innerHTML = '';
@@ -515,6 +520,7 @@ export class Hud {
       <div class="row total"><span>Score</span><b class="total-val">0</b></div>
     `;
     card.append(rows);
+    if (social) card.append(this.socialRow(() => social));
     const btns = el('div', 'btns');
     const cont = el('button', 'big-btn', isLast ? (piece ? withIcon('bolt', 'It\'s alive!') : 'See final score') : withIcon('play', 'Continue'));
     cont.addEventListener('click', onContinue);
@@ -552,6 +558,17 @@ export class Hud {
     card.append(hint('Enter · play again', ''));
     this.overlay.append(card);
     this.countUp(rows.querySelector<HTMLElement>('.total-val')!, total, 700);
+  }
+
+  /** "Post on Facebook / X" buttons; the post is built at tap time (the name may have changed). */
+  private socialRow(post: () => SocialPost): HTMLElement {
+    const row = el('div', 'social-btns');
+    const fb = el('button', 'social-btn fb', withIcon('facebook', 'Facebook'));
+    fb.addEventListener('click', (e) => { e.stopPropagation(); openExternal(facebookShareUrl(post().url)); });
+    const x = el('button', 'social-btn x', withIcon('x', 'Post'));
+    x.addEventListener('click', (e) => { e.stopPropagation(); const p = post(); openExternal(xShareUrl(p.text, p.url)); });
+    row.append(el('span', 'social-label', 'Share on'), fb, x);
+    return row;
   }
 
   private pieceEl(p: PieceReward): HTMLElement {
@@ -641,6 +658,8 @@ export class Hud {
     replay.addEventListener('click', onReplay);
     btns.append(share, save, replay);
     card.append(btns);
+    const social = monster.social;
+    if (social) card.append(this.socialRow(() => ({ text: social.text(name()), url: social.url })));
     this.overlay.append(card);
     this.countUp(rows.querySelector<HTMLElement>('.total-val')!, total, 700);
   }

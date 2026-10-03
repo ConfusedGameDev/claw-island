@@ -194,8 +194,8 @@ export abstract class Critter implements Grabbable {
     this.onSquawk?.();
   }
 
-  /** Break off: run away from the target, then go back to patrolling. */
-  stopCharge(): void {
+  /** Break off: run away from the target (for `fleeSeconds`, if given), then go back to patrolling. */
+  stopCharge(fleeSeconds?: number): void {
     if (this.state !== 'CHARGE') return;
     const t = this.chargeTarget?.();
     this.chargeTarget = null;
@@ -206,6 +206,19 @@ export abstract class Critter implements Grabbable {
       this.fleeDir.set(fx / l, fz / l);
     }
     this.enter('FLEE');
+    if (fleeSeconds !== undefined) this.stateDur = fleeSeconds;
+  }
+
+  /** Stand still for a set time (a nap, a breather). */
+  rest(seconds: number): void {
+    if (this.state === 'HELD' || this.state === 'FALLING' || this.state === 'GONE') return;
+    this.enter('IDLE');
+    this.stateDur = seconds;
+  }
+
+  /** Head off to a fresh spot in the region now. */
+  wander(): void {
+    if (this.state === 'IDLE' || this.state === 'WANDER') this.enter('WANDER');
   }
 
   get charging(): boolean {
@@ -229,7 +242,11 @@ export abstract class Critter implements Grabbable {
       this.bestDist = Infinity;
       this.bestT = 0;
     }
+    this.onEnter(s);
   }
+
+  /** Subclass hook: a state was just entered. */
+  protected onEnter(_s: CritterState): void {}
 
   private get holeX(): number { return this.level.origin.x + LAYOUT.HOLE.x; }
   private get holeZ(): number { return this.level.origin.z + LAYOUT.HOLE.z; }

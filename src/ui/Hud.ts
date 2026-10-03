@@ -40,6 +40,8 @@ export interface PauseMenu {
   onJump: (index: number) => void;
   /** Music toggle (Spooky Night only). */
   music?: { on: boolean; toggle: () => boolean };
+  /** Debug shortcuts (shown only while debug tools are on). */
+  debug?: { onOpenGate?: () => void; onComplete?: () => void };
 }
 
 /** The finished monster (final screen). */
@@ -422,6 +424,18 @@ export class Hud {
       grid.append(b);
     }
     card.append(grid);
+    if (m.debug) {
+      card.append(el('div', 'grid-title', 'Debug'));
+      const dbg = el('div', 'btns debug-btns');
+      const open = el('button', 'big-btn ghost small', withIcon('lock', 'Open gate'));
+      if (m.debug.onOpenGate) open.addEventListener('click', m.debug.onOpenGate);
+      else open.disabled = true;
+      const done = el('button', 'big-btn ghost small', withIcon('bolt', 'Complete island'));
+      if (m.debug.onComplete) done.addEventListener('click', m.debug.onComplete);
+      else done.disabled = true;
+      dbg.append(open, done);
+      card.append(dbg);
+    }
     card.append(hint('Esc · resume', ''));
     this.overlay.append(card);
   }

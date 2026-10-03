@@ -70,6 +70,9 @@ export abstract class Gate {
   update(_dt: number, _t: number): void {}
   onClawBottom(_x: number, _z: number, _env: GateEnv): void {}
 
+  /** Debug: count this gate as solved right away. */
+  forceSolve(): void { this.solve(); }
+
   protected solve(): void {
     if (this.solved) return;
     this.solved = true;

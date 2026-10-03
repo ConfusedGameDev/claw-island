@@ -68,6 +68,13 @@ const CAMPAIGN_KEY = 'clawisland.campaign';
  */
 export const PUBLIC_GAME_URL = '';
 
+/**
+ * Debug shortcuts in the pause menu (open the gate, complete the island).
+ * On for now so they work in the mobile test builds; set to
+ * `import.meta.env.DEV` before release to keep them out of store builds.
+ */
+export const DEBUG_TOOLS: boolean = true;
+
 export function gameUrl(): string {
   const native = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() ?? false;
   if (native || !/^https?:$/.test(location.protocol)) return PUBLIC_GAME_URL;

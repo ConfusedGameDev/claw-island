@@ -73,6 +73,8 @@ export abstract class Gate {
   poll(_dt: number, _env: GateEnv): void {}
   update(_dt: number, _t: number): void {}
   onClawBottom(_x: number, _z: number, _env: GateEnv): void {}
+  /** Loose items this gate still needs on the island (refilled by the game if they go missing). */
+  requiredKinds(): string[] { return []; }
 
   /** Debug: count this gate as solved right away. */
   forceSolve(): void { this.solve(); }
@@ -508,6 +510,7 @@ export class CauldronGate extends Gate {
   }
 
   get instruction(): string { return 'Brew the potion: drop in the ingredients'; }
+  requiredKinds(): string[] { return this.solved ? [] : this.recipe.filter((k) => !this.added.has(k)); }
   goals(): GoalCard[] {
     return this.recipe.map((k) => ({ key: `cauldron:${k}`, label: k, kind: k, done: this.added.has(k) }));
   }

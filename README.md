@@ -47,6 +47,11 @@ floats over the pot and is listed from the start.
 | Cauldron | drop the recipe's ingredients in; anything else is spat back out | Witch's Brewery, Witch's Sky |
 | Laser | turn the claw to aim standing mirrors (the beam previews off a held mirror) and bounce the beam into the crystal | Mad Scientist Lab |
 
+**Always winnable.** Any treasure that ends up in the open hatch counts,
+however it got there (dropped, shoved by a bat, tumbling off the trapdoor).
+Prizes stranded out of reach hop back in, and if a treasure, a cauldron
+ingredient or a special critter goes missing, a new one drops in.
+
 **Booster packs.** After each island you tear open a booster pack with one
 random power-up for the next island:
 - **Double points:** that island's score counts twice.

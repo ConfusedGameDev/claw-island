@@ -117,6 +117,8 @@ export class Game {
   private deliveredKinds = new Set<string>();
   private watchdogT = 0;
   private stranded = new Map<object, number>();
+  /** Seconds each needed prize has been missing (refilled after a moment). */
+  private missing = new Map<string, number>();
   private bats = new WeakMap<Collectible, BatFlight>();
   /** Power-up active on the current island, and the one waiting for the next. */
   private booster: BoosterId | null = null;
@@ -325,6 +327,7 @@ export class Game {
     this.stats = { seconds: 0, attempts: 0, targetsDelivered: 0, decoysDropped: 0, slips: 0 };
     this.deliveredKinds.clear();
     this.stranded.clear();
+    this.missing.clear();
     this.timerRunning = false;
     this.hud.setTimer(0);
     this.hud.setAttempts(0);
@@ -380,11 +383,7 @@ export class Game {
     });
 
     const { FENCE } = LAYOUT;
-    const landAvoid = [
-      ...gateZones(def).map((zn) => ({ x: o.x + zn.x, z: o.z + zn.z, r: zn.r + 0.25 })),
-      ...(def.lagoon ? [{ x: o.x + def.lagoon.x, z: o.z + def.lagoon.z, r: Math.max(def.lagoon.rx, def.lagoon.rz) + 0.3 }] : []),
-    ];
-    const land = new RectRegion(o.x, o.z, FENCE.hx - 0.4, FENCE.hz - 0.4, landAvoid);
+    const land = this.landRegion(def);
     const critterPoints = pickSpawnPoints(def.critter === 'none' ? 0 : def.critters + (def.guards ?? 0), this.rng, { hx: FENCE.hx - 0.5, hz: FENCE.hz - 0.5 }, [
       ...exclusions,
       ...points.map((p) => ({ x: p.x, z: p.y, r: 0.5 })),
@@ -402,19 +401,7 @@ export class Game {
       if (guard) c.onReach = () => this.onGuardReached(c);
       lv.critters.push(c);
     });
-    if (def.special === 'diamondcrab' && def.lagoon) {
-      const L = def.lagoon;
-      const pond = new EllipseRegion(o.x + L.x, o.z + L.z, L.rx * 0.7, L.rz * 0.7);
-      const dc = new Crab(this.scene, this.phys, { x: o.x + L.x, z: o.z + L.z }, this.rng, def, pond, 'diamond');
-      dc.onSquawk = () => this.sfx.squawk();
-      lv.critters.push(dc);
-    }
-    if (def.special === 'crownghost') {
-      const [p] = pickSpawnPoints(1, this.rng, { hx: FENCE.hx - 0.8, hz: FENCE.hz - 0.8 }, exclusions, 0.5);
-      const king = new Ghost(this.scene, this.phys, { x: o.x + (p?.x ?? 1), z: o.z + (p?.y ?? 1) }, this.rng, def, land, 'crown');
-      king.onSquawk = () => this.sfx.squawk();
-      lv.critters.push(king);
-    }
+    this.spawnSpecial(lv, exclusions);
 
     // Gate items (weight, mirrors, key, pumpkins...) go on free spots last.
     lv.decoyKinds = decoyKinds;
@@ -435,6 +422,41 @@ export class Game {
       this.applyTargets(targets);
       this.refreshGoals();
     }
+  }
+
+  /** Where land critters may roam: inside the fence, clear of gate stations and the lagoon. */
+  private landRegion(def: LevelDef): RectRegion {
+    const o = def.origin;
+    const { FENCE } = LAYOUT;
+    const avoid = [
+      ...gateZones(def).map((zn) => ({ x: o.x + zn.x, z: o.z + zn.z, r: zn.r + 0.25 })),
+      ...(def.lagoon ? [{ x: o.x + def.lagoon.x, z: o.z + def.lagoon.z, r: Math.max(def.lagoon.rx, def.lagoon.rz) + 0.3 }] : []),
+    ];
+    return new RectRegion(o.x, o.z, FENCE.hx - 0.4, FENCE.hz - 0.4, avoid);
+  }
+
+  /** The island's special critter prize (Spirit Crab, Ghost King), if it has one. */
+  private spawnSpecial(lv: LevelRuntime, exclusions: { x: number; z: number; r: number }[] = []): Critter | null {
+    const def = lv.def;
+    const o = def.origin;
+    const { FENCE } = LAYOUT;
+    const land = this.landRegion(def);
+    if (def.special === 'diamondcrab' && def.lagoon) {
+      const L = def.lagoon;
+      const pond = new EllipseRegion(o.x + L.x, o.z + L.z, L.rx * 0.7, L.rz * 0.7);
+      const dc = new Crab(this.scene, this.phys, { x: o.x + L.x, z: o.z + L.z }, this.rng, def, pond, 'diamond');
+      dc.onSquawk = () => this.sfx.squawk();
+      lv.critters.push(dc);
+      return dc;
+    }
+    if (def.special === 'crownghost') {
+      const [p] = pickSpawnPoints(1, this.rng, { hx: FENCE.hx - 0.8, hz: FENCE.hz - 0.8 }, exclusions, 0.5);
+      const king = new Ghost(this.scene, this.phys, { x: o.x + (p?.x ?? 1), z: o.z + (p?.y ?? 1) }, this.rng, def, land, 'crown');
+      king.onSquawk = () => this.sfx.squawk();
+      lv.critters.push(king);
+      return king;
+    }
+    return null;
   }
 
   private targetName(id: string): string {
@@ -1018,7 +1040,7 @@ export class Game {
       if (c.removed || !FLYING_KINDS.has(c.kind)) continue;
       let f = this.bats.get(c);
       if (!f) { f = new BatFlight(c, this.rng); this.bats.set(c, f); }
-      env ??= { origin: def.origin, zones: gateZones(def), clawPos: this.claw.pos, descending, gravity: def.gravityScale ?? 1 };
+      env ??= { origin: def.origin, zones: gateZones(def), clawPos: this.claw.pos, descending, gravity: def.gravityScale ?? 1, holeOpen: this.cur.hole.isOpen };
       f.step(dt, env);
     }
   }
@@ -1060,9 +1082,20 @@ export class Game {
         if (c && !c.removed) this.onEnteredHole(c);
       }
     }
+    // Anything below the floor under the hatch went down the pit, however it got there
+    // (dropped, shoved by a bat, knocked in sideways): count it even if it slipped past the sensor.
+    const o = lv.def.origin;
+    const { HOLE } = LAYOUT;
     for (const c of lv.collectibles) {
       if (c.removed || c.held) continue;
-      if (c.body.translation().y < LAYOUT.KILL_Y) this.onFellOff(c);
+      const t = c.body.translation();
+      if (t.y < -0.9 && Math.abs(t.x - o.x - HOLE.x) < HOLE.half + 1.2 && Math.abs(t.z - o.z - HOLE.z) < HOLE.half + 1.2) {
+        if (lv.hole.isOpen) this.onEnteredHole(c);
+        // Squeezed through the shut trapdoor: back on top of it, ready to drop in when it opens.
+        else c.teleport({ x: o.x + HOLE.x, y: 0.6, z: o.z + HOLE.z });
+        continue;
+      }
+      if (t.y < LAYOUT.KILL_Y) this.onFellOff(c);
     }
     for (const c of lv.critters) {
       if (!c.removed && c.fellInHole) this.onCritterInHole(c);
@@ -1121,18 +1154,47 @@ export class Game {
       c.teleport({ x: o.x + nx, y: 0.9, z: o.z + nz });
       if (c.isTarget || GATE_TOOL_KINDS.has(c.kind)) this.hud.toast(`${c.def.name} hopped back in reach`);
     }
-    // Every treasure must exist somewhere (on the island, held, or still on the belt).
-    for (const kind of lv.targets) {
-      if (this.deliveredKinds.has(kind) || !KINDS[kind]) continue;
-      const present = lv.collectibles.some((c) => c.kind === kind && !c.removed && c.isTarget) || lv.feed.includes(kind);
-      if (present) continue;
-      const p = this.reachableSpot(lv.def);
-      const c = new Collectible(kind, { x: o.x + p.x, y: 1.6, z: o.z + p.y }, 0, this.phys, this.scene, true);
-      if (lv.def.gravityScale) c.body.setGravityScale(lv.def.gravityScale, true);
-      lv.collectibles.push(c);
-      this.spawnParticles(new THREE.Vector3(o.x + p.x, 0.6, o.z + p.y), PAL.star, 10);
-      this.hud.toast(`${KINDS[kind].name} reappeared!`);
+    // Never leave the island unwinnable: every treasure still owed, and everything a
+    // gate still needs (the cauldron's ingredients), must exist somewhere (on the
+    // island, held, or still on the belt). Anything that went missing drops back in.
+    const needed: { kind: string; target: boolean }[] = [];
+    for (const kind of lv.targets) if (!this.deliveredKinds.has(kind)) needed.push({ kind, target: true });
+    for (const g of lv.gates) for (const kind of g.requiredKinds()) needed.push({ kind, target: false });
+    for (const { kind, target } of needed) {
+      const key = `${target ? 'target' : 'gate'}:${kind}`;
+      const present = KINDS[kind]
+        // (The belt only runs once the hatch is open, so it can't supply a gate.)
+        ? lv.collectibles.some((c) => c.kind === kind && !c.removed && (!target || c.isTarget)) || (target && lv.feed.includes(kind))
+        : lv.critters.some((c) => c.kind === kind && !c.removed);
+      if (present) { this.missing.delete(key); continue; }
+      const since = (this.missing.get(key) ?? 0) + dt;
+      this.missing.set(key, since);
+      if (since < 1.5) continue;
+      this.missing.delete(key);
+      this.dropIn(lv, kind, target);
     }
+  }
+
+  /** A replacement prize falls from the sky onto a reachable spot. */
+  private dropIn(lv: LevelRuntime, kind: string, isTarget: boolean): void {
+    const o = lv.def.origin;
+    if (!KINDS[kind]) {
+      // A special critter (Spirit Crab, Ghost King) walks back on.
+      const c = this.spawnSpecial(lv);
+      if (c) {
+        this.spawnParticles(c.position.clone().setY(0.5), PAL.star, 14);
+        this.hud.toast(`${this.targetName(kind)} is back!`);
+        this.sfx.returned();
+      }
+      return;
+    }
+    const p = this.reachableSpot(lv.def);
+    const c = new Collectible(kind, { x: o.x + p.x, y: 4, z: o.z + p.y }, this.rng() * Math.PI * 2, this.phys, this.scene, isTarget);
+    if (lv.def.gravityScale) c.body.setGravityScale(lv.def.gravityScale, true);
+    lv.collectibles.push(c);
+    this.spawnParticles(new THREE.Vector3(o.x + p.x, 0.6, o.z + p.y), PAL.star, 12);
+    this.hud.toast(`A new ${KINDS[kind].name} dropped in!`);
+    this.sfx.returned();
   }
 
   private onCritterInHole(c: Critter): void {

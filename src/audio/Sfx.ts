@@ -8,37 +8,80 @@ export class Sfx {
 
   /** Set while the app is in the background: nothing may wake the audio then. */
   private hidden = false;
+  /**
+   * The context went through a background trip or an OS interruption. iOS
+   * WebKit often leaves such a context dead (it may even report 'running'
+   * while staying silent), so the next tap replaces it with a fresh one.
+   */
+  private stale = false;
 
   /**
-   * Must be called from a user gesture (mobile Safari). Also wakes a context
-   * the OS suspended or interrupted (iOS reports 'interrupted' after a call,
-   * Siri, or coming back from the background).
+   * Must be called from a user gesture (mobile Safari). Creates the context on
+   * the first tap, wakes a suspended one, and rebuilds one left dead by iOS.
    */
   unlock(): void {
+    if (this.hidden) return;
+    if (this.ctx && this.stale) this.replaceContext();
     if (this.ctx) {
-      if (!this.hidden && this.ctx.state !== 'running') void this.ctx.resume().catch(() => { /* retried on the next tap */ });
+      if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => { /* retried on the next tap */ });
       return;
     }
+    this.createContext();
+  }
+
+  private createContext(): void {
     try {
-      this.ctx = new AudioContext();
-      this.master = this.ctx.createGain();
+      const ctx = new AudioContext();
+      this.ctx = ctx;
+      this.master = ctx.createGain();
       this.master.gain.value = 0.5;
-      this.master.connect(this.ctx.destination);
+      this.master.connect(ctx.destination);
+      this.stale = false;
+      // An OS interruption (call, Siri, another app's audio) can kill the context too.
+      ctx.onstatechange = () => {
+        if ((ctx.state as string) === 'interrupted' || (ctx.state === 'suspended' && !this.hidden && !this.selfSuspended)) this.stale = true;
+      };
+      // Playing a silent sample inside the tap is what fully unlocks iOS audio.
+      const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      if (ctx.state !== 'running') void ctx.resume().catch(() => { /* ignore */ });
+      this.generation++;
     } catch {
       this.ctx = null;
+      this.master = null;
     }
   }
+
+  private replaceContext(): void {
+    const old = this.ctx;
+    this.ctx = null;
+    this.master = null;
+    if (old) {
+      old.onstatechange = null;
+      void old.close().catch(() => { /* ignore */ });
+    }
+    this.createContext();
+  }
+
+  /** Bumps whenever a new context is created (music rebuilds its graph on change). */
+  generation = 0;
+  private selfSuspended = false;
 
   /** App went to the background: silence everything (music included). */
   suspend(): void {
     this.hidden = true;
+    this.stale = true;
+    this.selfSuspended = true;
     if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend().catch(() => { /* ignore */ });
   }
 
-  /** App is back in front: let sound play again (iOS may still need a tap, handled by unlock()). */
+  /** App is back in front. The audio itself comes back on the next tap (see unlock()). */
   wake(): void {
     this.hidden = false;
-    this.unlock();
+    this.selfSuspended = false;
   }
 
   /** The shared audio context and master bus, once unlocked (music plays through them too). */

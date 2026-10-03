@@ -25,7 +25,7 @@ import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
 import { LAYOUT } from './Layout';
 import { gateZones, levelGates, type LevelDef } from './Levels';
 import { createGate, type Gate, type GateEnv, type GoalCard } from './Gates';
-import { type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
+import { DEBUG_TOOLS, type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
 import { MONSTERS, MonsterPortrait, SLOTS, monsterName, pieceLabel, rollPiece, swatchCss, type MonsterBuild, type Slot } from './Monster';
 import { composeCard, prepareCard, saveCard, shareCard, type PartChip } from '../ui/Share';
 import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle, windValue } from '../util/math';
@@ -511,7 +511,33 @@ export class Game {
       onRestart: () => this.jumpTo(this.currentLevel),
       onJump: (i) => this.jumpTo(i),
       music: this.music ? { on: this.music.enabled, toggle: () => this.music!.toggle() } : undefined,
+      debug: DEBUG_TOOLS ? {
+        onOpenGate: this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugOpenGate(); } : undefined,
+        onComplete: this.collecting || this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugComplete(); } : undefined,
+      } : undefined,
     });
+  }
+
+  /** Debug: break every seal on this island so the hatch swings open. */
+  private debugOpenGate(): void {
+    if (this.phase !== 'PHASE_WEIGHT') return;
+    for (const g of this.cur.gates) if (!g.solved) g.forceSolve();
+  }
+
+  /** Debug: open the hatch and count every remaining treasure as delivered. */
+  private debugComplete(): void {
+    this.debugOpenGate();
+    if (!this.collecting) return;
+    const at = new THREE.Vector3(this.cur.def.origin.x + LAYOUT.HOLE.x, 0.5, this.cur.def.origin.z + LAYOUT.HOLE.z);
+    for (const c of this.cur.collectibles) {
+      if (!c.isTarget || c.delivered || c.removed) continue;
+      c.delivered = true;
+      this.claw.forgetHeld(c);
+      c.dispose();
+    }
+    for (const kind of this.targets) {
+      if (!this.deliveredKinds.has(kind)) this.deliverTarget(kind, KINDS[kind]?.name ?? kind, at);
+    }
   }
 
   /** The app went to the background (home button, app switch, lock screen). */

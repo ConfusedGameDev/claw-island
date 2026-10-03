@@ -288,6 +288,9 @@ export class LaserGate extends Gate {
 export class KeyGate extends Gate {
   private key: Collectible | null = null;
   private frank: Frankenstein | null = null;
+  /** Seconds he has loitered next to the lock while not chasing. */
+  private campT = 0;
+  private napped = false;
   private lockPos: THREE.Vector3;
   private shackle: THREE.Mesh;
 
@@ -310,9 +313,23 @@ export class KeyGate extends Gate {
   spawn(env: GateEnv): void {
     this.key = env.spawn('gatekey', this.spec.key.x, this.spec.key.z, 0.6);
     const o = this.level.origin;
-    const region = new RectRegion(this.lockPos.x * 0.6 + o.x * 0.4, this.lockPos.z * 0.6 + o.z * 0.4, 1.8, 1.3);
-    this.frank = new Frankenstein(this.scene, this.phys, { x: this.lockPos.x - Math.sign(this.spec.x || 1) * 0.9, z: this.lockPos.z }, env.rng, this.level, region);
+    const { FENCE } = LAYOUT;
+    // He roams the whole pen but never picks a stroll that ends by the lock,
+    // so he can't camp it (he still walks past, and chases anywhere).
+    const region = new RectRegion(o.x, o.z, FENCE.hx - 0.45, FENCE.hz - 0.45, [{ x: this.lockPos.x, z: this.lockPos.z, r: 1.5 }]);
+    const tx = o.x - this.lockPos.x;
+    const tz = o.z - this.lockPos.z;
+    const tl = Math.hypot(tx, tz) || 1;
+    const start = { x: this.lockPos.x + (tx / tl) * 2, z: this.lockPos.z + (tz / tl) * 2 };
+    this.frank = new Frankenstein(this.scene, this.phys, start, env.rng, this.level, region);
     this.frank.onReach = () => this.onFrankReach(env);
+    this.frank.onNap = () => {
+      env.sfx.tone(90, 0.6, 'sine', 0.08, 70);
+      if (!this.napped) env.toast('Frankenstein dozed off…');
+      this.napped = true;
+    };
+    this.campT = 0;
+    this.napped = false;
     env.addCritter(this.frank);
   }
 
@@ -329,17 +346,28 @@ export class KeyGate extends Gate {
       env.claw.knockOff();
       env.toast('Frankenstein snatched the key!', 'bad');
       env.sfx.tone(110, 0.4, 'sawtooth', 0.14, 70);
-      f.dizzy = 2.5;
+      f.dizzy = 3;
+      // Stagger well away so the dropped key isn't left under his nose.
+      f.stopCharge(2.6);
+      return;
     }
     f.stopCharge();
   }
 
-  step(_dt: number, env: GateEnv): void {
+  step(dt: number, env: GateEnv): void {
     const f = this.frank;
     if (!f || f.removed || this.solved) return;
     const carrying = env.claw.held !== null && env.claw.held === this.key;
-    if (carrying && !f.charging && f.dizzy <= 0) f.chargeAt(() => env.claw.pos, 1.25);
+    if (carrying && !f.charging && f.dizzy <= 0 && f.asleep <= 0) f.chargeAt(() => env.claw.pos, 1.25);
     else if (!carrying && f.charging) f.stopCharge();
+    // Never let him park by the lock: after a few seconds there, send him off.
+    const p = f.position;
+    const near = Math.hypot(p.x - this.lockPos.x, p.z - this.lockPos.z) < 1.2;
+    this.campT = near && !f.charging && f.asleep <= 0 ? this.campT + dt : 0;
+    if (this.campT > 3) {
+      this.campT = 0;
+      f.wander();
+    }
   }
 
   poll(_dt: number, env: GateEnv): void {

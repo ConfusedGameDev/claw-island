@@ -987,7 +987,7 @@ export function buildMonster(build: MonsterBuild, placeholders = true): THREE.Gr
 
 // ---------------------------------------------------------------- render
 /** A round, bevelled display base with a name band, like a collectible figure. */
-function buildPlinth(name?: string): THREE.Group {
+export function buildPlinth(name?: string): THREE.Group {
   const g = new THREE.Group();
   const base = add(g, lathe([[0.001, -0.2], [0.9, -0.2], [0.95, -0.17], [0.96, -0.06], [0.92, -0.02], [0.86, 0], [0.001, 0]], 48), vinyl(0x3a2a4f, 0.5));
   base.castShadow = false;
@@ -1016,6 +1016,36 @@ function buildPlinth(name?: string): THREE.Group {
   return g;
 }
 
+/** Toy-photo lighting: warm key from above-front, cool lavender rim, soft fill. */
+export function addToyLights(scene: THREE.Scene): void {
+  scene.add(new THREE.HemisphereLight(0xfff4ea, 0x4a3a6a, 1.25));
+  const key = new THREE.DirectionalLight(0xffe8cc, 2.6);
+  key.position.set(1.6, 4.5, 3.2);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.radius = 4;
+  key.shadow.bias = -0.0005;
+  const sc = key.shadow.camera as THREE.OrthographicCamera;
+  sc.left = -2; sc.right = 2; sc.top = 3; sc.bottom = -1;
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0xb9a0ff, 2.0);
+  rim.position.set(-3, 2.5, -3);
+  scene.add(rim);
+  const fill = new THREE.DirectionalLight(0xffd0e0, 0.5);
+  fill.position.set(-2.5, 1, 3);
+  scene.add(fill);
+}
+
+/** Free a figure built for a one-off render (shared bone geometry stays alive). */
+export function disposeFigure(figure: THREE.Object3D): void {
+  figure.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    if (!o.geometry.userData.shared) o.geometry.dispose();
+    const mat = o.material as THREE.MeshStandardMaterial;
+    if (mat.map) { mat.map.dispose(); mat.dispose(); }
+  });
+}
+
 /** Renders monsters to images with a private offscreen renderer. */
 export class MonsterPortrait {
   private renderer: THREE.WebGLRenderer | null = null;
@@ -1034,23 +1064,7 @@ export class MonsterPortrait {
     } catch (err) {
       console.warn('Monster portrait renderer unavailable', err);
     }
-    // Toy-photo lighting: warm key from above-front, cool lavender rim, soft fill.
-    this.scene.add(new THREE.HemisphereLight(0xfff4ea, 0x4a3a6a, 1.25));
-    const key = new THREE.DirectionalLight(0xffe8cc, 2.6);
-    key.position.set(1.6, 4.5, 3.2);
-    key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
-    key.shadow.radius = 4;
-    key.shadow.bias = -0.0005;
-    const sc = key.shadow.camera as THREE.OrthographicCamera;
-    sc.left = -2; sc.right = 2; sc.top = 3; sc.bottom = -1;
-    this.scene.add(key);
-    const rim = new THREE.DirectionalLight(0xb9a0ff, 2.0);
-    rim.position.set(-3, 2.5, -3);
-    this.scene.add(rim);
-    const fill = new THREE.DirectionalLight(0xffd0e0, 0.5);
-    fill.position.set(-2.5, 1, 3);
-    this.scene.add(fill);
+    addToyLights(this.scene);
   }
 
   /** Square transparent canvas of the monster, `size` px. Returns null without WebGL. */
@@ -1073,13 +1087,7 @@ export class MonsterPortrait {
     this.camera.lookAt(center);
     this.renderer.render(this.scene, this.camera);
     this.scene.remove(figure);
-    // Shared (cached) bone geometries stay alive for the game scene.
-    figure.traverse((o) => {
-      if (!(o instanceof THREE.Mesh)) return;
-      if (!o.geometry.userData.shared) o.geometry.dispose();
-      const mat = o.material as THREE.MeshStandardMaterial;
-      if (mat.map) { mat.map.dispose(); mat.dispose(); }
-    });
+    disposeFigure(figure);
     const out = document.createElement('canvas');
     out.width = out.height = size;
     out.getContext('2d')!.drawImage(this.canvas, 0, 0);

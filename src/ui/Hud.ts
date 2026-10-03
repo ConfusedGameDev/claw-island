@@ -91,6 +91,8 @@ export class Hud {
   private cards = new Map<string, HTMLElement>();
   private lastTimer = '';
   private pauseBtn: HTMLButtonElement;
+  /** Set by the game: the player tapped a monster picture (opens the 3D viewer). */
+  onViewMonster: ((title?: string) => void) | null = null;
   /** Set by the game: the pause button was pressed. */
   onPause: (() => void) | null = null;
 
@@ -104,16 +106,36 @@ export class Hud {
     this.pauseBtn.setAttribute('aria-label', 'Pause');
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); this.onPause?.(); });
     this.boosterEl = el('div', 'pill booster-pill hidden');
-    stats.append(this.levelEl, this.timerEl, this.attemptsEl, this.boosterEl, this.pauseBtn);
+    stats.append(this.levelEl, this.timerEl, this.attemptsEl, this.boosterEl);
+    // Pause lives on its own in the top-right corner.
+    this.pauseBtn.classList.add('pause-corner');
     const banner = el('div', 'banner');
     this.bannerEl = el('div', 'banner-title');
     this.bannerSub = el('div', 'banner-sub');
     banner.append(this.bannerEl, this.bannerSub);
-    this.targetsEl = el('div', 'targets hidden');
-    this.goalsEl = el('div', 'targets goals hidden');
-    top.append(stats, banner, this.targetsEl, this.goalsEl);
+    this.targetsEl = el('div', 'targets drawer hidden');
+    this.goalsEl = el('div', 'targets goals drawer hidden');
+    top.append(stats, banner);
+    // Treasure and hatch lists: a pull-out tab on the right edge (icons only until opened).
+    let collapsed = window.matchMedia('(max-width: 720px)').matches;
+    try {
+      const saved = localStorage.getItem('clawisland.drawer');
+      if (saved) collapsed = saved === 'closed';
+    } catch { /* ignore */ }
+    const applyDrawer = () => {
+      for (const d of [this.targetsEl, this.goalsEl]) d.classList.toggle('collapsed', collapsed);
+    };
+    applyDrawer();
+    for (const d of [this.targetsEl, this.goalsEl]) {
+      d.addEventListener('click', (e) => {
+        e.stopPropagation();
+        collapsed = !collapsed;
+        applyDrawer();
+        try { localStorage.setItem('clawisland.drawer', collapsed ? 'closed' : 'open'); } catch { /* ignore */ }
+      });
+    }
     this.toastHost = el('div', 'toasts');
-    this.hud.append(top, this.toastHost);
+    this.hud.append(top, this.targetsEl, this.goalsEl, this.pauseBtn, this.toastHost);
 
     this.buildTouch(input);
   }
@@ -177,7 +199,7 @@ export class Hud {
   }
 
   setTargets(cards: TargetCard[]): void {
-    this.targetsEl.innerHTML = '<div class="targets-title">Find &amp; drop in the hole</div>';
+    this.targetsEl.innerHTML = '<div class="targets-title"><span class="drawer-arrow">◀</span><span class="drawer-label">Treasures</span></div>';
     this.cards.clear();
     for (const c of cards) {
       const card = el('div', 'card');
@@ -190,7 +212,7 @@ export class Hud {
 
   /** The "open the hatch" checklist shown while the hatch is shut. */
   setGoals(cards: (TargetCard & { done: boolean })[]): void {
-    this.goalsEl.innerHTML = '<div class="targets-title">Open the hatch</div>';
+    this.goalsEl.innerHTML = '<div class="targets-title"><span class="drawer-arrow">◀</span><span class="drawer-label">Open the hatch</span></div>';
     for (const c of cards) {
       const card = el('div', `card${c.done ? ' done' : ''}`);
       const icon = c.isImage ? `<img src="${c.icon}" alt="${c.name}" />` : `<span class="card-fallback">${ICONS.token}</span>`;
@@ -335,6 +357,23 @@ export class Hud {
     this.overlay.append(card);
   }
 
+  /** Turn monster pictures inside `root` into buttons that open the 3D viewer. */
+  private viewable(root: HTMLElement, title?: () => string): void {
+    root.querySelectorAll<HTMLElement>('.piece-monster, .monster-stage img').forEach((img) => {
+      img.classList.add('viewable');
+      img.setAttribute('role', 'button');
+      img.setAttribute('aria-label', 'Look at your monster in 3D');
+      img.title = 'Tap to look around';
+      const badge = document.createElement('span');
+      badge.className = 'view-badge';
+      badge.innerHTML = ICONS.rotate;
+      img.insertAdjacentElement('afterend', badge);
+      const open = (e: Event) => { e.stopPropagation(); this.onViewMonster?.(title?.()); };
+      img.addEventListener('click', open);
+      badge.addEventListener('click', open);
+    });
+  }
+
   setPauseVisible(visible: boolean): void {
     if (this.pauseBtn.classList.contains('hidden') === !visible) return;
     this.pauseBtn.classList.toggle('hidden', !visible);
@@ -357,8 +396,9 @@ export class Hud {
       const pic = m.monster.image ? `<img class="piece-monster" src="${m.monster.image}" alt="Your monster so far" />` : `<div class="piece-fallback">${ICONS.monster}</div>`;
       const dots = Array.from({ length: m.monster.total }, (_, i) => `<i class="${i < m.monster!.filled ? 'on' : ''}"></i>`).join('');
       const parts = m.monster.parts.length ? chips(m.monster.parts) : '<span>No pieces yet: clear an island!</span>';
-      box.innerHTML = `${pic}<div class="piece-text"><div class="piece-kicker">Your monster</div><div class="piece-dots">${dots}</div><div class="piece-count">${m.monster.filled} / ${m.monster.total} pieces</div><div class="parts">${parts}</div></div>`;
+      box.innerHTML = `<div class="pic-wrap">${pic}</div><div class="piece-text"><div class="piece-kicker">Your monster</div><div class="piece-dots">${dots}</div><div class="piece-count">${m.monster.filled} / ${m.monster.total} pieces</div><div class="parts">${parts}</div></div>`;
       card.append(box);
+      this.viewable(box);
     }
     const restart = el('button', 'big-btn alt small', withIcon('restart', 'Restart island'));
     restart.addEventListener('click', m.onRestart);
@@ -475,7 +515,8 @@ export class Hud {
     const box = el('div', 'piece');
     const pic = p.image ? `<img class="piece-monster" src="${p.image}" alt="Your monster so far" />` : `<div class="piece-fallback">${ICONS.monster}</div>`;
     const dots = Array.from({ length: p.total }, (_, i) => `<i class="${i < p.filled ? 'on' : ''}${i === p.filled - 1 ? ' new' : ''}"></i>`).join('');
-    box.innerHTML = `${pic}<div class="piece-text"><div class="piece-kicker">New body piece!</div><div class="piece-label"><i class="dot" style="background:${p.color}"></i>${p.label}</div><div class="piece-dots">${dots}</div><div class="piece-count">${p.filled} / ${p.total} pieces</div></div>`;
+    box.innerHTML = `<div class="pic-wrap">${pic}</div><div class="piece-text"><div class="piece-kicker">New body piece!</div><div class="piece-label"><i class="dot" style="background:${p.color}"></i>${p.label}</div><div class="piece-dots">${dots}</div><div class="piece-count">${p.filled} / ${p.total} pieces</div></div>`;
+    this.viewable(box);
     return box;
   }
 
@@ -500,6 +541,7 @@ export class Hud {
     nameRow.append(input);
     card.append(nameRow);
     const name = () => input.value.trim() || monster.defaultName;
+    this.viewable(stage, name);
     const parts = el('div', 'parts');
     parts.innerHTML = chips(monster.parts);
     card.append(parts);

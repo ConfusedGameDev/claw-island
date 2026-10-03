@@ -17,6 +17,7 @@ import {
 } from '../entities/Collectible';
 import { Hud, type BoosterCard, type PauseMonster, type PieceReward } from '../ui/Hud';
 import { ICONS } from '../ui/Icons';
+import { MonsterViewer } from '../ui/MonsterViewer';
 import { Input } from './Input';
 import { Sfx } from '../audio/Sfx';
 import { Music, TITLE_ARRANGEMENT } from '../audio/Music';
@@ -108,6 +109,13 @@ export class Game {
   /** Spooky campaign: body pieces won so far this run. */
   pieces: MonsterBuild = {};
   private portrait: MonsterPortrait | null = null;
+  private readonly viewer = new MonsterViewer();
+  /** When the claw last let go of each thing (only recent drops into the hatch can be "wrong"). */
+  private releasedAt = new WeakMap<object, number>();
+  /** Treasure kinds delivered on this island. */
+  private deliveredKinds = new Set<string>();
+  private watchdogT = 0;
+  private stranded = new Map<object, number>();
   /** Power-up active on the current island, and the one waiting for the next. */
   private booster: BoosterId | null = null;
   private pendingBooster: BoosterId | null = null;
@@ -155,8 +163,14 @@ export class Game {
     this.input = new Input();
     this.hud = new Hud(this.input);
     this.hud.onPause = () => this.pause();
+    this.hud.onViewMonster = (title) => {
+      const done = SLOTS.every((s) => this.pieces[s]);
+      // Missing parts show as ghostly outlines until the monster is finished.
+      this.viewer.open(this.pieces, title ?? 'Your monster', !done);
+    };
     this.music = campaign.rewardsPieces ? new Music(this.sfx) : null;
     this.input.onFirstGesture = () => { this.sfx.unlock(); this.music?.kick(); };
+    this.input.onGesture = () => { this.sfx.unlock(); this.music?.kick(); };
     this.icons = renderIcons([
       ...[...PICKUP_KINDS, 'weight'].map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
       { key: 'diamondcrab', build: () => Crab.buildIconMesh('diamond', this.levelDefs.find((l) => l.special === 'diamondcrab')?.critterSkin) },
@@ -188,7 +202,10 @@ export class Game {
         this.hud.toast(`The ${c.name} got away!`, 'bad');
         this.sfx.squawk();
       },
-      onRelease: () => this.sfx.release(),
+      onRelease: (c) => {
+        this.sfx.release();
+        this.releasedAt.set(c, this.time);
+      },
       onBottom: (x, z) => {
         if (this.phase !== 'PHASE_WEIGHT') return;
         const env = this.gateEnv(this.cur);
@@ -304,6 +321,8 @@ export class Game {
 
   private beginLevelStats(): void {
     this.stats = { seconds: 0, attempts: 0, targetsDelivered: 0, decoysDropped: 0, slips: 0 };
+    this.deliveredKinds.clear();
+    this.stranded.clear();
     this.timerRunning = false;
     this.hud.setTimer(0);
     this.hud.setAttempts(0);
@@ -339,7 +358,8 @@ export class Game {
     const C = def.conveyor;
     lv.feed = C ? shuffle([...targetKinds, ...fill(C.feedJunk)], this.rng) : [];
     lv.feedT = 0.6;
-    const toSpawn = shuffle([...(C ? [] : targetKinds), ...fill(def.decoys)], this.rng);
+    // Treasures claim spawn spots first; decoys only get what is left.
+    const toSpawn = [...(C ? [] : shuffle(targetKinds, this.rng)), ...shuffle(fill(def.decoys), this.rng)];
     const exclusions = [
       ...gateZones(def),
       { x: HOLE.x, z: HOLE.z, r: 1.0 },
@@ -349,7 +369,10 @@ export class Game {
     ];
     const points = pickSpawnPoints(toSpawn.length, this.rng, SPAWN, exclusions, 0.55);
     toSpawn.forEach((kind, i) => {
-      const p = points[i] ?? new THREE.Vector2(0, 0);
+      const isTarget = targets.includes(kind);
+      // Out of free spots: a treasure still goes somewhere reachable (never on the trapdoor); a decoy is skipped.
+      const p = points[i] ?? (isTarget ? this.reachableSpot(def) : null);
+      if (!p) return;
       const y = 1.2 + this.rng() * 1.0;
       add(new Collectible(kind, { x: o.x + p.x, y, z: o.z + p.y }, this.rng() * Math.PI * 2, this.phys, this.scene, targets.includes(kind)));
     });
@@ -489,6 +512,20 @@ export class Game {
       onJump: (i) => this.jumpTo(i),
       music: this.music ? { on: this.music.enabled, toggle: () => this.music!.toggle() } : undefined,
     });
+  }
+
+  /** The app went to the background (home button, app switch, lock screen). */
+  onAppHidden(): void {
+    this.pause();
+    this.input.releaseAll();
+    this.sfx.suspend();
+  }
+
+  /** Back in front: sound may play again; the game stays paused until the player resumes. */
+  onAppVisible(): void {
+    this.sfx.wake();
+    this.music?.kick();
+    this.lastNow = 0;
   }
 
   resume(): void {
@@ -971,11 +1008,77 @@ export class Game {
     for (const c of lv.critters) {
       if (!c.removed && c.fellInHole) this.onCritterInHole(c);
     }
+    this.watchdogT += this.phys.DT;
+    if (this.watchdogT >= 0.5) {
+      this.keepReachable(lv, this.watchdogT);
+      this.watchdogT = 0;
+    }
+  }
+
+  /** A random spot (island-local) the claw can reach, clear of the trapdoor and gate stations. */
+  private reachableSpot(def: LevelDef): THREE.Vector2 {
+    const { GANTRY, HOLE } = LAYOUT;
+    const zones = gateZones(def);
+    for (let i = 0; i < 40; i++) {
+      const x = (this.rng() * 2 - 1) * (GANTRY.maxX - 0.4);
+      const z = (this.rng() * 2 - 1) * (GANTRY.maxZ - 0.4);
+      if (Math.abs(x - HOLE.x) < HOLE.half + 0.5 && Math.abs(z - HOLE.z) < HOLE.half + 0.5) continue;
+      if (zones.some((zn) => Math.hypot(x - zn.x, z - zn.z) < zn.r)) continue;
+      return new THREE.Vector2(x, z);
+    }
+    return new THREE.Vector2(-1.8, 1.4);
+  }
+
+  /**
+   * Things that matter must stay reachable: anything resting beyond the
+   * crane's reach (against the fence, on a wall) hops back in, and a
+   * treasure that vanished is replaced.
+   */
+  private keepReachable(lv: LevelRuntime, dt: number): void {
+    if (this.phase !== 'PHASE_WEIGHT' && this.phase !== 'HOLE_OPENING' && this.phase !== 'PHASE_COLLECT') return;
+    const { GANTRY } = LAYOUT;
+    const o = lv.def.origin;
+    for (const c of lv.collectibles) {
+      if (c.removed || c.held) { this.stranded.delete(c); continue; }
+      const t = c.body.translation();
+      const v = c.body.linvel();
+      const lx = t.x - o.x;
+      const lz = t.z - o.z;
+      const out = Math.abs(lx) > GANTRY.maxX + 0.25 || Math.abs(lz) > GANTRY.maxZ + 0.25 || t.y > 1.4;
+      if (!out || Math.hypot(v.x, v.y, v.z) > 0.3) { this.stranded.delete(c); continue; }
+      const since = (this.stranded.get(c) ?? 0) + dt;
+      this.stranded.set(c, since);
+      if (since < 2) continue;
+      this.stranded.delete(c);
+      // Hop back to the nearest reachable spot inside (away from the trapdoor).
+      let nx = Math.max(-(GANTRY.maxX - 0.35), Math.min(GANTRY.maxX - 0.35, lx));
+      let nz = Math.max(-(GANTRY.maxZ - 0.35), Math.min(GANTRY.maxZ - 0.35, lz));
+      if (Math.abs(nx - LAYOUT.HOLE.x) < LAYOUT.HOLE.half + 0.4 && Math.abs(nz - LAYOUT.HOLE.z) < LAYOUT.HOLE.half + 0.4) {
+        const spot = this.reachableSpot(lv.def);
+        nx = spot.x;
+        nz = spot.y;
+      }
+      this.spawnParticles(c.position.clone(), PAL.star, 6);
+      c.teleport({ x: o.x + nx, y: 0.9, z: o.z + nz });
+      if (c.isTarget || GATE_TOOL_KINDS.has(c.kind)) this.hud.toast(`${c.def.name} hopped back in reach`);
+    }
+    // Every treasure must exist somewhere (on the island, held, or still on the belt).
+    for (const kind of lv.targets) {
+      if (this.deliveredKinds.has(kind) || !KINDS[kind]) continue;
+      const present = lv.collectibles.some((c) => c.kind === kind && !c.removed && c.isTarget) || lv.feed.includes(kind);
+      if (present) continue;
+      const p = this.reachableSpot(lv.def);
+      const c = new Collectible(kind, { x: o.x + p.x, y: 1.6, z: o.z + p.y }, 0, this.phys, this.scene, true);
+      if (lv.def.gravityScale) c.body.setGravityScale(lv.def.gravityScale, true);
+      lv.collectibles.push(c);
+      this.spawnParticles(new THREE.Vector3(o.x + p.x, 0.6, o.z + p.y), PAL.star, 10);
+      this.hud.toast(`${KINDS[kind].name} reappeared!`);
+    }
   }
 
   private onCritterInHole(c: Critter): void {
     const p = c.position.clone();
-    if (c.isTarget && !c.delivered && this.targets.includes(c.kind) && this.phase === 'PHASE_COLLECT') {
+    if (c.isTarget && !c.delivered && this.targets.includes(c.kind) && this.collecting) {
       c.delivered = true;
       this.deliverTarget(c.kind, c.name, p);
     } else {
@@ -988,7 +1091,14 @@ export class Game {
     c.dispose();
   }
 
+  /** The hatch is open (or swinging open): treasures falling in count. */
+  private get collecting(): boolean {
+    return this.phase === 'PHASE_COLLECT' || this.phase === 'HOLE_OPENING';
+  }
+
   private deliverTarget(kind: string, name: string, at: THREE.Vector3): void {
+    if (this.deliveredKinds.has(kind)) return;
+    this.deliveredKinds.add(kind);
     this.stats.targetsDelivered++;
     this.hud.markDelivered(kind);
     this.hud.toast(`${name}! ✓`, 'good');
@@ -996,7 +1106,7 @@ export class Game {
     this.spawnParticles(at, PAL.flowerYellow, 14);
     if (this.stats.targetsDelivered >= this.targets.length) {
       this.timerRunning = false;
-      setTimeout(() => { if (this.phase === 'PHASE_COLLECT') this.setPhase('RESULTS'); }, 900);
+      setTimeout(() => { if (this.phase === 'PHASE_COLLECT' || this.phase === 'HOLE_OPENING') this.setPhase('RESULTS'); }, 900);
     }
   }
 
@@ -1008,14 +1118,17 @@ export class Game {
       this.onFellOff(c);
       return;
     }
-    if (c.isTarget && !c.delivered && this.phase === 'PHASE_COLLECT') {
+    if (c.isTarget && !c.delivered && this.collecting) {
       c.delivered = true;
       this.deliverTarget(c.kind, c.def.name, p);
-    } else {
+    } else if (this.time - (this.releasedAt.get(c) ?? -99) < 5) {
       this.stats.decoysDropped++;
       this.hud.toast('Wrong one! -100', 'bad');
       this.sfx.wrong();
       this.spawnParticles(p, PAL.rock, 6);
+    } else {
+      // It tumbled in on its own (e.g. it was lying on the trapdoor): no penalty.
+      this.spawnParticles(p, PAL.rock, 4);
     }
     this.claw.forgetHeld(c);
     c.dispose();

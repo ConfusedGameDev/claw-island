@@ -39,8 +39,10 @@ export interface PauseMenu {
   onRestart: () => void;
   onJump: (index: number) => void;
   /** Music toggle (Spooky Night only). */
-  /** Music toggle (Spooky Night), or a sound-effects toggle (Classic) labelled `name`. */
-  music?: { on: boolean; toggle: () => boolean; name?: 'Music' | 'Sound' };
+  /** Music toggle. */
+  music?: { on: boolean; toggle: () => boolean };
+  /** Jump to the other campaign (reloads the game there). */
+  switchTo?: { label: string; icon: IconName; go: () => void };
   /** Debug shortcuts (shown only while debug tools are on). */
   debug?: { onOpenGate?: () => void; onComplete?: () => void; boosters?: { icon: string; name: string; onUse: () => void }[] };
   /** Ten quick music toggles: the secret switch for the debug tools. */
@@ -426,8 +428,7 @@ export class Hud {
     mid.append(restart);
     if (m.music) {
       const music = m.music;
-      const word = music.name ?? 'Music';
-      const label = (on: boolean) => withIcon(on ? 'music' : 'musicOff', `${word} ${on ? 'on' : 'off'}`);
+      const label = (on: boolean) => withIcon(on ? 'music' : 'musicOff', on ? 'Music on' : 'Music off');
       const mb = el('button', 'big-btn ghost small', label(music.on));
       let taps = 0;
       let lastTap = 0;
@@ -451,6 +452,14 @@ export class Hud {
       grid.append(b);
     }
     card.append(grid);
+    if (m.switchTo) {
+      const sw = m.switchTo;
+      const row = el('div', 'btns');
+      const b = el('button', 'big-btn alt small campaign-switch', withIcon(sw.icon, sw.label));
+      b.addEventListener('click', sw.go);
+      row.append(b);
+      card.append(row);
+    }
     if (m.debug) {
       card.append(el('div', 'grid-title', 'Debug'));
       const dbg = el('div', 'btns debug-btns');

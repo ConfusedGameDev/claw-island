@@ -53,6 +53,7 @@ interface LevelRuntime {
 
 const SPECIAL_NAMES: Record<string, string> = { diamondcrab: 'Diamond Crab', crownghost: 'Ghost King' };
 const PIECES_SUFFIX = '.monster';
+const SOUND_KEY = 'clawisland.classic.sound';
 
 export type BoosterId = 'points' | 'speed' | 'instant';
 const BOOSTERS: Record<BoosterId, BoosterCard & { pill: (charges: number) => string }> = {
@@ -173,6 +174,8 @@ export class Game {
       this.viewer.open(this.pieces, title ?? 'Your monster', !done);
     };
     this.music = campaign.rewardsPieces ? new Music(this.sfx) : null;
+    // Classic's sound switch (Spooky Night has its music switch instead).
+    if (!this.music) try { this.sfx.muted = localStorage.getItem(SOUND_KEY) === 'off'; } catch { /* ignore */ }
     this.input.onFirstGesture = () => { this.sfx.unlock(); this.music?.kick(); };
     this.input.onGesture = () => { this.sfx.unlock(); this.music?.kick(); };
     this.icons = renderIcons([
@@ -518,6 +521,12 @@ export class Game {
     this.showPauseMenu();
   }
 
+  private toggleSound(): boolean {
+    this.sfx.muted = !this.sfx.muted;
+    try { localStorage.setItem(SOUND_KEY, this.sfx.muted ? 'off' : 'on'); } catch { /* ignore */ }
+    return !this.sfx.muted;
+  }
+
   /** Debug tools are switched on/off with ten quick music toggles in the pause menu. */
   private debugUnlocked = (() => { try { return localStorage.getItem('clawisland.debug') === '1'; } catch { return false; } })();
 
@@ -549,7 +558,10 @@ export class Game {
       onResume: () => this.resume(),
       onRestart: () => this.jumpTo(this.currentLevel),
       onJump: (i) => this.jumpTo(i),
-      music: this.music ? { on: this.music.enabled, toggle: () => this.music!.toggle() } : undefined,
+      // Classic has no music: the same button switches the sound effects (and keeps the debug switch).
+      music: this.music
+        ? { on: this.music.enabled, toggle: () => this.music!.toggle() }
+        : { on: !this.sfx.muted, toggle: () => this.toggleSound(), name: 'Sound' },
       debug: DEBUG_TOOLS && this.debugUnlocked ? {
         onOpenGate: this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugOpenGate(); } : undefined,
         onComplete: this.collecting || this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugComplete(); } : undefined,

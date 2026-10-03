@@ -39,7 +39,8 @@ export interface PauseMenu {
   onRestart: () => void;
   onJump: (index: number) => void;
   /** Music toggle (Spooky Night only). */
-  music?: { on: boolean; toggle: () => boolean };
+  /** Music toggle (Spooky Night), or a sound-effects toggle (Classic) labelled `name`. */
+  music?: { on: boolean; toggle: () => boolean; name?: 'Music' | 'Sound' };
   /** Debug shortcuts (shown only while debug tools are on). */
   debug?: { onOpenGate?: () => void; onComplete?: () => void; boosters?: { icon: string; name: string; onUse: () => void }[] };
   /** Ten quick music toggles: the secret switch for the debug tools. */
@@ -425,7 +426,8 @@ export class Hud {
     mid.append(restart);
     if (m.music) {
       const music = m.music;
-      const label = (on: boolean) => withIcon(on ? 'music' : 'musicOff', on ? 'Music on' : 'Music off');
+      const word = music.name ?? 'Music';
+      const label = (on: boolean) => withIcon(on ? 'music' : 'musicOff', `${word} ${on ? 'on' : 'off'}`);
       const mb = el('button', 'big-btn ghost small', label(music.on));
       let taps = 0;
       let lastTap = 0;

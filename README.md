@@ -88,9 +88,14 @@ as a picture with a link to the game:
 - Otherwise the PNG downloads and the text with the link is copied to the
   clipboard.
 
-The link is the page the game is served from. The apps have no web address
-of their own, so set `PUBLIC_GAME_URL` in `src/game/Campaign.ts` before
-shipping them.
+**Post on Facebook or X.** The final screen and every island's results card
+have Facebook and X buttons that open a pre-filled post (X gets a line about
+your monster or island score; Facebook shares the link). They can't attach the
+picture; use Share for that.
+
+The link everywhere is `PUBLIC_GAME_URL` in `src/game/Campaign.ts`, currently
+the web build at https://claw-island.vercel.app/. Swap it for the store pages
+once the apps are approved.
 
 ### Classic
 

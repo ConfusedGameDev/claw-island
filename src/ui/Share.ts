@@ -292,3 +292,20 @@ export async function saveCard(card: PreparedCard): Promise<ShareOutcome> {
   download(card);
   return 'downloaded';
 }
+
+// ------------------------------------------------------------- social posts
+/** Facebook's sharer takes only the link (it reads the page for the preview). */
+export const facebookShareUrl = (url: string): string => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+
+/** X's post intent: the text plus the link. */
+export const xShareUrl = (text: string, url: string): string =>
+  `https://x.com/intent/post?text=${encodeURIComponent(text)}${url ? `&url=${encodeURIComponent(url)}` : ''}`;
+
+/**
+ * Open a link outside the game: a new tab on the web; in the apps a link to
+ * another site is handed to the system (the X/Facebook app or the browser).
+ */
+export function openExternal(href: string): void {
+  const w = window.open(href, '_blank', 'noopener');
+  if (!w && !Capacitor.isNativePlatform()) location.href = href;
+}

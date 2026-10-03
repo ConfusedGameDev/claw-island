@@ -30,6 +30,8 @@ export const ICONS = {
   close: svg('<path d="M6 6l12 12M18 6 6 18" stroke-width="2.6"/>'),
   rotate: svg('<path d="M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5"/><path d="m9 14 3 2.5-3 2.5"/>'),
   scale: svg('<path d="M12 4v15"/><path d="M8 20h8"/><path d="M4 7h16"/><circle cx="12" cy="4" r="1.3" fill="#ffcf4a"/><path d="M6 7 3.5 13h5z" fill="#ffcf4a"/><path d="M18 7l-2.5 6h5z" fill="#f28a35"/>'),
+  facebook: svg('<rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor" stroke="none"/><path d="M15.5 7.5h-1.8c-1.3 0-2.2.9-2.2 2.2V21M9.5 12.5h5.5" stroke="#1877f2" stroke-width="2.2"/>'),
+  x: svg('<path d="M4.5 4h4.2l10.8 16h-4.2z" fill="currentColor" stroke="none"/><path d="M19.5 4 13.4 11M4.5 20l6.1-7" stroke-width="2.2"/>'),
   token: svg('<circle cx="12" cy="12" r="8.5" fill="#e6d9ff"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>'),
 } as const;
 

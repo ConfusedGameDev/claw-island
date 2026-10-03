@@ -62,11 +62,10 @@ export const DEFAULT_CAMPAIGN: CampaignId = 'halloween';
 const CAMPAIGN_KEY = 'clawisland.campaign';
 
 /**
- * Where the shared monster card points people. On the web it is the page the
- * game is served from; native builds have no public URL of their own, so set
- * this to the game's public page (store listing or website) before release.
+ * Where shared cards and Facebook/X posts point people (web and apps alike).
+ * The web build for now; swap in the store pages once the apps are approved.
  */
-export const PUBLIC_GAME_URL = '';
+export const PUBLIC_GAME_URL = 'https://claw-island.vercel.app/';
 
 /**
  * Debug shortcuts in the pause menu (open the gate, complete the island,
@@ -77,9 +76,8 @@ export const PUBLIC_GAME_URL = '';
 export const DEBUG_TOOLS: boolean = true;
 
 export function gameUrl(): string {
-  const native = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() ?? false;
-  if (native || !/^https?:$/.test(location.protocol)) return PUBLIC_GAME_URL;
-  return location.origin + location.pathname;
+  if (PUBLIC_GAME_URL) return PUBLIC_GAME_URL;
+  return /^https?:$/.test(location.protocol) ? location.origin + location.pathname : '';
 }
 
 const isCampaignId = (v: unknown): v is CampaignId => v === 'halloween' || v === 'classic';

@@ -5,6 +5,7 @@ import { PAL, plastic } from '../scene/Materials';
 import { LAYOUT } from '../game/Layout';
 import { PhysicsWorld, CLAW_GROUPS, GRAB_QUERY_GROUPS, groups, G } from '../physics/PhysicsWorld';
 import { grabbableOf, type Grabbable } from './Grabbable';
+import { GATE_TOOL_KINDS } from './Collectible';
 import type { Input } from '../game/Input';
 import { clamp, damp, easeOutCubic, lerp } from '../util/math';
 import { boneDarkMat, boneGeometry, boneMat, skullMesh } from '../scene/Bones';
@@ -50,6 +51,10 @@ export interface ClawEvents {
   /** Claw picked up a tool (the magnet) instead of an object. */
   onToolPickup?: (c: Grabbable) => void;
   onRelease?: (c: Grabbable) => void;
+  /** The claw came to rest at the bottom of a drop (before closing). */
+  onBottom?: (x: number, z: number) => void;
+  /** An instant-catch charge was spent. */
+  onInstant?: (c: Grabbable) => void;
 }
 
 const IDENTITY_Q = { x: 0, y: 0, z: 0, w: 1 };
@@ -89,6 +94,11 @@ export class Claw {
   heavyAll = false;
   /** Horizontal wind pushing the crane (m/s), set by the game each frame. */
   wind = 0;
+  /** Booster: multiplies crane, drop and lift speeds. */
+  speedScale = 1;
+  /** Booster: drops that snap straight onto the nearest thing and grab it perfectly. */
+  instantCharges = 0;
+  private instantTarget: Grabbable | null = null;
   tool: 'claw' | 'magnet' = 'claw';
   private magnetMesh!: THREE.Group;
   /** Surface height under the claw, measured when a drop starts. */
@@ -467,14 +477,21 @@ export class Claw {
         const ax = inputEnabled ? input.axisX : 0;
         const az = inputEnabled ? input.axisZ : 0;
         const len = Math.hypot(ax, az) || 1;
-        this.vel.x = damp(this.vel.x, (ax / len) * CLAW.MOVE_SPEED, 14, dt);
-        this.vel.z = damp(this.vel.z, (az / len) * CLAW.MOVE_SPEED, 14, dt);
+        this.vel.x = damp(this.vel.x, (ax / len) * CLAW.MOVE_SPEED * this.speedScale, 14, dt);
+        this.vel.z = damp(this.vel.z, (az / len) * CLAW.MOVE_SPEED * this.speedScale, 14, dt);
         this.pos.x = clamp(this.pos.x + (this.vel.x + this.wind) * dt, this.bounds.minX, this.bounds.maxX);
         this.pos.z = clamp(this.pos.z + (this.vel.z + this.wind * 0.3) * dt, this.bounds.minZ, this.bounds.maxZ);
         if (inputEnabled && input.consumeDrop()) {
           this.vel.set(0, 0, 0);
           if (this.state === 'IDLE') {
             this.events.onAttempt?.();
+            this.instantTarget = this.instantCharges > 0 ? this.findInstantTarget() : null;
+            if (this.instantTarget) {
+              // Snap over it; the drop itself is fast and the grab is dead centre.
+              const p = this.instantTarget.body.translation();
+              this.pos.x = clamp(p.x, this.bounds.minX, this.bounds.maxX);
+              this.pos.z = clamp(p.z, this.bounds.minZ, this.bounds.maxZ);
+            }
             this.groundY = this.surfaceBelow(this.pos.x, this.pos.z);
             this.enter('DESCENDING');
           } else {
@@ -484,7 +501,7 @@ export class Claw {
         break;
       }
       case 'DESCENDING': {
-        let move = CLAW.DESCEND_SPEED * dt;
+        let move = CLAW.DESCEND_SPEED * this.speedScale * (this.instantTarget ? 4 : 1) * dt;
         const hubPos = this.body.translation();
         const hit = this.phys.world.castShape(
           hubPos, IDENTITY_Q, { x: 0, y: -1, z: 0 }, new RAPIER.Ball(0.2), 0, 3, true, undefined, GRAB_QUERY_GROUPS,
@@ -500,7 +517,10 @@ export class Claw {
         const minY = this.groundY + CLAW.MIN_TIP_CLEARANCE - CLAW.FINGER_BOTTOM;
         this.pos.y = Math.max(minY, this.pos.y - move);
         if (this.pos.y <= minY + 1e-4) stop = true;
-        if (stop) this.enter('CLOSING');
+        if (stop) {
+          this.events.onBottom?.(this.pos.x, this.pos.z);
+          this.enter('CLOSING');
+        }
         break;
       }
       case 'CLOSING': {
@@ -523,7 +543,7 @@ export class Claw {
       }
       case 'ASCENDING': {
         const start = Math.min(this.groundY, FLOOR_Y) + CLAW.MIN_TIP_CLEARANCE - CLAW.FINGER_BOTTOM;
-        this.pos.y = Math.min(GANTRY.restY, this.pos.y + CLAW.ASCEND_SPEED * dt);
+        this.pos.y = Math.min(GANTRY.restY, this.pos.y + CLAW.ASCEND_SPEED * this.speedScale * dt);
         const progress = (this.pos.y - start) / (GANTRY.restY - start);
         if (this.held && this.slipping) {
           // Wobble builds up over the last stretch before the drop.
@@ -549,7 +569,7 @@ export class Claw {
         const held = this.held;
         if (!held || held.removed) { this.enter('RELEASING'); break; }
         const { top, bottom } = held.def;
-        let move = CLAW.DESCEND_SPEED * dt;
+        let move = CLAW.DESCEND_SPEED * this.speedScale * dt;
         const centerY = this.pos.y - this.holdGap - top;
         const hit = this.phys.world.castShape(
           { x: this.pos.x, y: centerY, z: this.pos.z }, IDENTITY_Q, { x: 0, y: -1, z: 0 }, new RAPIER.Ball(0.2),
@@ -635,7 +655,39 @@ export class Claw {
     }
   }
 
+  /** Instant catch: the nearest liftable thing under the claw (within a generous radius). */
+  private findInstantTarget(): Grabbable | null {
+    const magnet = this.tool === 'magnet';
+    let best: Grabbable | null = null;
+    let bestD = 0.85;
+    this.phys.world.intersectionsWithShape(
+      { x: this.pos.x, y: 1.2, z: this.pos.z }, IDENTITY_Q, new RAPIER.Cylinder(1.4, 0.85),
+      (col) => {
+        const c = grabbableOf(col.parent());
+        if (!c || c.removed || c.held || c.tooHeavy || c.kind === 'magnet') return true;
+        if (!magnet && this.heavyAll && !GATE_TOOL_KINDS.has(c.kind)) return true;
+        const p = c.body.translation();
+        const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
+        if (d < bestD) { bestD = d; best = c; }
+        return true;
+      },
+      undefined, GRAB_QUERY_GROUPS,
+    );
+    return best;
+  }
+
   private tryGrab(): boolean {
+    const instant = this.instantTarget;
+    this.instantTarget = null;
+    if (instant && !instant.removed && !instant.held) {
+      const p = instant.body.translation();
+      if (Math.hypot(p.x - this.pos.x, p.z - this.pos.z) < 0.6) {
+        this.instantCharges = Math.max(0, this.instantCharges - 1);
+        this.attach(instant, 0);
+        this.events.onInstant?.(instant);
+        return true;
+      }
+    }
     const hub = this.body.translation();
     const magnet = this.tool === 'magnet';
     const reach = magnet ? 0.75 : CLAW.GRAB_REACH;
@@ -665,7 +717,7 @@ export class Claw {
       this.events.onToolPickup?.(found);
       return false;
     }
-    if (!magnet && this.heavyAll) {
+    if (found.tooHeavy || (!magnet && this.heavyAll && !GATE_TOOL_KINDS.has(found.kind))) {
       this.quietMiss = true;
       this.events.onTooHeavy?.(found);
       return false;

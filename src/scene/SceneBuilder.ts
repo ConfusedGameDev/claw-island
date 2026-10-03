@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PAL, plastic, toon } from './Materials';
 import { LAYOUT } from '../game/Layout';
-import { LAGOON_DEPTH, lagoonProfile, type LevelDef, type ThemeDef } from '../game/Levels';
+import { LAGOON_DEPTH, gateZones, lagoonProfile, levelGates, type LevelDef, type ThemeDef } from '../game/Levels';
 import { PhysicsWorld, FLOOR_GROUPS } from '../physics/PhysicsWorld';
 import { mulberry32, randRange } from '../util/math';
 import { createWaterMaterial } from './Water';
@@ -408,10 +408,9 @@ export class Diorama {
   }
 
   private blocked(x: number, z: number): boolean {
-    const { HOLE, BUTTON, GANTRY } = LAYOUT;
-    const b = this.level.button;
+    const { HOLE, GANTRY } = LAYOUT;
     if (Math.abs(x - HOLE.x) < HOLE.half + 0.2 && Math.abs(z - HOLE.z) < HOLE.half + 0.2) return true;
-    if (Math.hypot(x - b.x, z - b.z) < BUTTON.radius + 0.2) return true;
+    for (const zn of gateZones(this.level)) if (Math.hypot(x - zn.x, z - zn.z) < zn.r) return true;
     if (Math.abs(Math.abs(x) - GANTRY.postX) < 0.2 && Math.abs(Math.abs(z) - GANTRY.postZ) < 0.2) return true;
     if (this.onBelt(x, z)) return true;
     for (const pool of this.pools()) {
@@ -665,9 +664,16 @@ export class Diorama {
   }
 
   // ------------------------------------------------------------------ sign
+  /** The "PUSH!" sign next to the big button (islands whose gate is the weight). */
+  private get buttonSpot(): { x: number; z: number } | null {
+    const w = levelGates(this.level).find((g) => g.kind === 'weight');
+    return w ? { x: w.x, z: w.z } : null;
+  }
+
   private buildSign(): void {
     const T = this.theme;
-    const b = this.level.button;
+    const b = this.buttonSpot;
+    if (!b) return;
     const g = new THREE.Group();
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.7, 8), plastic(T.wood, { roughness: 0.7 }));
     post.position.y = 0.35;
@@ -1174,10 +1180,10 @@ export class Diorama {
       const z = -FENCE.hz + 0.3 + i * ((FENCE.hz * 2 - 0.6) / 5);
       spots.push([-rimX, z], [rimX, z]);
     }
-    const b = this.level.button;
-    const signX = (b.x >= 0 ? 1 : -1) * (FENCE.hx + 0.55);
+    const b = this.buttonSpot;
+    const signX = b ? (b.x >= 0 ? 1 : -1) * (FENCE.hx + 0.55) : 99;
     const ok = (x: number, z: number) => {
-      if (Math.hypot(x - signX, z - b.z) < 0.9) return false;
+      if (b && Math.hypot(x - signX, z - b.z) < 0.9) return false;
       if (Math.abs(Math.abs(x) - LAYOUT.GANTRY.postX) < 0.35 && Math.abs(Math.abs(z) - LAYOUT.GANTRY.postZ) < 0.35) return false;
       for (const p of this.pools()) if (Math.hypot((x - p.x) / (p.rx + 0.45), (z - p.z) / (p.rz + 0.45)) < 1) return false;
       return true;

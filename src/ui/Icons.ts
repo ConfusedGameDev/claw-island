@@ -24,6 +24,9 @@ export const ICONS = {
   musicOff: svg('<path d="M9 17V5l11-2v12"/><circle cx="6.5" cy="17.5" r="2.5" fill="currentColor"/><circle cx="17.5" cy="15.5" r="2.5" fill="currentColor"/><path d="M3 3l18 18" stroke-width="2.4"/>'),
   monster: svg('<circle cx="12" cy="8" r="5.5" fill="#93c98a"/><rect x="7.5" y="13" width="9" height="8" rx="3.5" fill="#5f73a6"/><path d="M9.5 5.5h5M10.5 4.6v1.8M13.5 4.6v1.8"/><circle cx="10" cy="8.5" r=".9" fill="currentColor"/><circle cx="14" cy="8.5" r=".9" fill="currentColor"/><path d="M5.5 15h2M16.5 15h2"/>'),
   magnet: svg('<path d="M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4z" fill="#e8384b"/><path d="M6 4h4M14 4h4" stroke="#d8dbe6" stroke-width="3"/>'),
+  x2: svg('<circle cx="12" cy="12" r="9" fill="#ffcf4a"/><circle cx="12" cy="12" r="6.5" stroke-width="1.4"/><path d="M8.3 9.5l3 5M11.3 9.5l-3 5" stroke-width="1.8"/><path d="M13.2 10.4c.4-1 2.8-1.3 2.9.3.1 1.4-2.9 2.3-3 3.8h3.2" stroke-width="1.6"/>'),
+  speed: svg('<path d="M3 8h6M2 12h6M3 16h6" stroke-width="1.8"/><path d="M14 3 9.5 12.5h4L12 21l7.5-11h-4.2z" fill="#8ff0c0"/>'),
+  instant: svg('<path d="M12 2v5"/><circle cx="12" cy="8.5" r="2.2" fill="#d9c4a3"/><path d="M10 10 7 13.5l1.6 4M14 10l3 3.5-1.6 4"/><circle cx="12" cy="18" r="2.6" fill="#ff7fb0"/><path d="M4 4l1.5 1.5M20 4l-1.5 1.5M3 10h2M21 10h-2" stroke="#ffcf4a"/>'),
   token: svg('<circle cx="12" cy="12" r="8.5" fill="#e6d9ff"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>'),
 } as const;
 

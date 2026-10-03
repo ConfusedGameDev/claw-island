@@ -20,6 +20,8 @@ export interface Campaign {
   bestKey: string;
   /** Each cleared island awards a monster body piece. */
   rewardsPieces: boolean;
+  /** Each cleared island opens a booster pack with a power-up for the next one. */
+  boosters: boolean;
 }
 
 export const CAMPAIGNS: Record<CampaignId, Campaign> = {
@@ -35,6 +37,7 @@ export const CAMPAIGNS: Record<CampaignId, Campaign> = {
     progressKey: 'clawisland.halloween.progress',
     bestKey: 'clawisland.halloween.best',
     rewardsPieces: true,
+    boosters: true,
   },
   classic: {
     id: 'classic',
@@ -49,6 +52,7 @@ export const CAMPAIGNS: Record<CampaignId, Campaign> = {
     progressKey: 'clawisland.progress',
     bestKey: 'clawisland.best',
     rewardsPieces: false,
+    boosters: false,
   },
 };
 

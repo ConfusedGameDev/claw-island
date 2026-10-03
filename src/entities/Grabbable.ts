@@ -18,6 +18,8 @@ export interface Grabbable {
   readonly def: GrabDef;
   removed: boolean;
   held: boolean;
+  /** The claw can never lift it (Frankenstein). */
+  readonly tooHeavy?: boolean;
   /** Seconds after which the thing wriggles free on its own (chickens). */
   readonly escapeAfter?: number;
   onGrab(): void;

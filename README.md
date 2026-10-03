@@ -32,6 +32,25 @@ A kawaii-horror take on the same ten-island run:
 | 9 | Mad Scientist Lab | everything is too heavy; find the magnet (Future Lab) |
 | 10 | Witch's Sky | low gravity (Cloud Kingdom) |
 
+**Opening the hatch.** Each island guards its hatch in its own way; a few
+later ones combine two:
+
+| Gate | How it opens | Islands |
+|---|---|---|
+| Weight | rest the heavy weight on the big button | Pumpkin Patch, Haunted Mansion |
+| Bells | four tombstones chime a pattern; touch down on their bells in the same order | Graveyard, Haunted Mansion |
+| Scale | load the pan with carved pumpkins (1–3 pips each) to match the counterweight | Trick-or-Treat, Witch's Sky |
+| Key | carry the key to the padlock while Frankenstein stomps after the claw and swipes it loose | Frozen Crypt, Vampire Castle |
+| Cauldron | drop the recipe's ingredients in; anything else is spat back out | Witch's Brewery, Witch's Sky |
+| Laser | turn the claw to aim standing mirrors (the beam previews off a held mirror) and bounce the beam into the crystal | Mummy Tomb, Mad Scientist Lab |
+
+**Booster packs.** After each island you tear open a booster pack with one
+random power-up for the next island:
+- **Double points:** that island's score counts twice.
+- **Double speed:** the crane moves, drops and lifts twice as fast.
+- **Instant catch:** your next 3 drops snap onto the nearest thing and grab
+  it dead centre.
+
 **Build a Frankenstein.**
 - Clearing an island awards the next body piece, in this order: head, body,
   arms, legs, eyes, mouth, hair, extra.
@@ -170,7 +189,8 @@ src/
   game/Input.ts           keyboard + touch -> crane axes and drop button
   game/Scoring.ts         score formula
   game/Layout.ts          island-local coordinates (platform, hole, gantry bounds)
-  game/Levels.ts          classic island definitions and theme/level types
+  game/Levels.ts          classic island definitions, theme/level/gate types
+  game/Gates.ts           hatch gates: weight, laser & mirrors, key & Frankenstein, cauldron, scale, bells
   game/LevelsHalloween.ts the Spooky Night islands and themes
   game/Campaign.ts        campaign list, picker persistence, public game URL
   game/Monster.ts         Frankenstein body pieces, procedural monster builder, portrait renderer
@@ -188,6 +208,7 @@ src/
   entities/Critter.ts     base for small creatures: roaming regions, freeze, grab, escape, hole fall
   entities/Chicken.ts     cucco visuals and animation (white and black)
   entities/Ghost.ts       haunted island ghosts and the Ghost King
+  entities/Frankenstein.ts the key gate's guard
   entities/KindsExtra.ts  pickups for the later islands and the magnet tool
   entities/KindsHalloween.ts spooky pickups (candy corn, tombstone, eyeball, coffin, potion, cauldron)
   entities/Crab.ts        crab visuals and animation, plus the diamond variant

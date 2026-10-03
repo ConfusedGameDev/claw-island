@@ -6,7 +6,6 @@ import { RailBridge } from '../scene/RailBridge';
 import { PAL, plastic, setupEnvironment } from '../scene/Materials';
 import { PostFX } from '../scene/PostFX';
 import { Claw } from '../entities/Claw';
-import { Button } from '../entities/Button';
 import { Hole } from '../entities/Hole';
 import { Chicken } from '../entities/Chicken';
 import { Crab } from '../entities/Crab';
@@ -14,15 +13,17 @@ import { Ghost } from '../entities/Ghost';
 import { type Critter, type Obstacle, RectRegion, EllipseRegion } from '../entities/Critter';
 import { tickWater } from '../scene/Water';
 import {
-  COLLECTIBLE_KINDS, PICKUP_KINDS, Collectible, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
+  COLLECTIBLE_KINDS, GATE_TOOL_KINDS, PICKUP_KINDS, Collectible, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
 } from '../entities/Collectible';
-import { Hud, type PauseMonster, type PieceReward } from '../ui/Hud';
+import { Hud, type BoosterCard, type PauseMonster, type PieceReward } from '../ui/Hud';
+import { ICONS } from '../ui/Icons';
 import { Input } from './Input';
 import { Sfx } from '../audio/Sfx';
 import { Music, TITLE_ARRANGEMENT } from '../audio/Music';
 import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
 import { LAYOUT } from './Layout';
-import { type LevelDef } from './Levels';
+import { gateZones, levelGates, type LevelDef } from './Levels';
+import { createGate, type Gate, type GateEnv, type GoalCard } from './Gates';
 import { type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
 import { MONSTERS, MonsterPortrait, SLOTS, monsterName, pieceLabel, rollPiece, swatchCss, type MonsterBuild, type Slot } from './Monster';
 import { composeCard, prepareCard, saveCard, shareCard, type PartChip } from '../ui/Share';
@@ -35,7 +36,8 @@ interface Particle { mesh: THREE.Mesh; vel: THREE.Vector3; life: number }
 interface LevelRuntime {
   def: LevelDef;
   diorama: Diorama;
-  button: Button;
+  /** What guards the hatch on this island (all must be solved). */
+  gates: Gate[];
   hole: Hole;
   collectibles: Collectible[];
   critters: Critter[];
@@ -43,10 +45,19 @@ interface LevelRuntime {
   /** Factory: items still to be dropped onto the belt, and the countdown to the next one. */
   feed: string[];
   feedT: number;
+  /** Non-target kinds lying around (cauldron recipes are drawn from them). */
+  decoyKinds: string[];
 }
 
 const SPECIAL_NAMES: Record<string, string> = { diamondcrab: 'Diamond Crab', crownghost: 'Ghost King' };
 const PIECES_SUFFIX = '.monster';
+
+export type BoosterId = 'points' | 'speed' | 'instant';
+const BOOSTERS: Record<BoosterId, BoosterCard & { pill: (charges: number) => string }> = {
+  points: { id: 'points', name: 'Double points', desc: 'Your score on the next island counts twice.', icon: ICONS.x2, pill: () => '×2' },
+  speed: { id: 'speed', name: 'Double speed', desc: 'The crane moves, drops and lifts twice as fast on the next island.', icon: ICONS.speed, pill: () => '×2' },
+  instant: { id: 'instant', name: 'Instant catch', desc: 'Your next 3 drops snap onto the nearest thing and grab it dead centre.', icon: ICONS.instant, pill: (n) => `${n} left` },
+};
 
 export interface LevelResult { level: LevelDef; breakdown: ScoreBreakdown; stats: RunStats }
 
@@ -95,6 +106,10 @@ export class Game {
   /** Spooky campaign: body pieces won so far this run. */
   pieces: MonsterBuild = {};
   private portrait: MonsterPortrait | null = null;
+  /** Power-up active on the current island, and the one waiting for the next. */
+  private booster: BoosterId | null = null;
+  private pendingBooster: BoosterId | null = null;
+  private boosterShown = false;
   paused = false;
 
   constructor(canvas: HTMLCanvasElement, readonly campaign: Campaign) {
@@ -118,13 +133,14 @@ export class Game {
       this.levels.push({
         def,
         diorama: new Diorama(this.scene, this.phys, def),
-        button: new Button(this.scene, this.phys, def.origin, def.button),
+        gates: levelGates(def).map((g) => createGate(this.scene, this.phys, def, g)),
         hole: new Hole(this.scene, this.phys, def.origin),
         collectibles: [],
         critters: [],
         targets: [],
         feed: [],
         feedT: 0,
+        decoyKinds: [],
       });
     }
     for (let i = 0; i < this.levelDefs.length - 1; i++) {
@@ -138,7 +154,7 @@ export class Game {
     this.music = campaign.rewardsPieces ? new Music(this.sfx) : null;
     this.input.onFirstGesture = () => { this.sfx.unlock(); this.music?.kick(); };
     this.icons = renderIcons([
-      ...PICKUP_KINDS.map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
+      ...[...PICKUP_KINDS, 'weight'].map((k) => ({ key: k, build: () => KINDS[k].buildMesh() })),
       { key: 'diamondcrab', build: () => Crab.buildIconMesh('diamond', this.levelDefs.find((l) => l.special === 'diamondcrab')?.critterSkin) },
       { key: 'crownghost', build: () => Ghost.buildIconMesh('crown') },
     ]);
@@ -169,6 +185,16 @@ export class Game {
         this.sfx.squawk();
       },
       onRelease: () => this.sfx.release(),
+      onBottom: (x, z) => {
+        if (this.phase !== 'PHASE_WEIGHT') return;
+        const env = this.gateEnv(this.cur);
+        for (const g of this.cur.gates) g.onClawBottom(x, z, env);
+      },
+      onInstant: () => {
+        this.sfx.grab();
+        this.hud.toast(this.claw.instantCharges > 0 ? `Instant catch! ${this.claw.instantCharges} left` : 'Instant catch!', 'good');
+        this.showBooster();
+      },
       onTooHeavy: () => {
         this.hud.toast('Too heavy for the claw!', 'bad');
         this.sfx.wrong();
@@ -181,7 +207,12 @@ export class Game {
         this.sfx.deliver();
       },
     };
-    for (const lv of this.levels) lv.button.onPressed = () => this.onButtonPressed(lv);
+    for (const lv of this.levels) {
+      for (const g of lv.gates) {
+        g.onSolved = () => this.onGateSolved(lv, g);
+        g.onGoalsChanged = () => { if (lv === this.cur) this.refreshGoals(); };
+      }
+    }
 
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('keydown', (e) => {
@@ -239,7 +270,7 @@ export class Game {
       lv.targets = [];
       lv.feed = [];
       lv.diorama.conveyorRunning = false;
-      lv.button.reset();
+      for (const g of lv.gates) g.reset();
       lv.hole.reset();
     }
     for (const p of this.particles) this.scene.remove(p.mesh);
@@ -276,7 +307,7 @@ export class Game {
   }
 
   private spawnLevel(lv: LevelRuntime): void {
-    const { SPAWN, HOLE, WEIGHT } = LAYOUT;
+    const { SPAWN, HOLE } = LAYOUT;
     const def = lv.def;
     const o = def.origin;
     const gravity = def.gravityScale ?? 1;
@@ -284,11 +315,10 @@ export class Game {
     const add = (c: Collectible) => {
       if (gravity !== 1) c.body.setGravityScale(gravity, true);
       // Candy: the toys themselves are springy too (the weight stays dead so the button works).
-      if (bouncy && c.kind !== 'weight') c.collider.setRestitution(0.8);
+      if (bouncy && !GATE_TOOL_KINDS.has(c.kind)) c.collider.setRestitution(0.8);
       lv.collectibles.push(c);
       return c;
     };
-    add(new Collectible('weight', { x: o.x + def.weight.x, y: WEIGHT.y, z: o.z + def.weight.z }, 0, this.phys, this.scene, false));
     if (def.magnet) add(new Collectible('magnet', { x: o.x + def.magnet.x, y: 0.5, z: o.z + def.magnet.z }, 0.4, this.phys, this.scene, false));
 
     const kinds = shuffle(def.pool ?? COLLECTIBLE_KINDS, this.rng);
@@ -307,8 +337,7 @@ export class Game {
     lv.feedT = 0.6;
     const toSpawn = shuffle([...(C ? [] : targetKinds), ...fill(def.decoys)], this.rng);
     const exclusions = [
-      { x: def.button.x, z: def.button.z, r: 1.0 },
-      { x: def.weight.x, z: def.weight.z, r: 0.7 },
+      ...gateZones(def),
       { x: HOLE.x, z: HOLE.z, r: 1.0 },
       ...(def.magnet ? [{ x: def.magnet.x, z: def.magnet.z, r: 0.7 }] : []),
       ...(def.lagoon ? [{ x: def.lagoon.x, z: def.lagoon.z, r: Math.max(def.lagoon.rx, def.lagoon.rz) + 0.35 }] : []),
@@ -323,12 +352,12 @@ export class Game {
 
     const { FENCE } = LAYOUT;
     const landAvoid = [
-      { x: o.x + def.button.x, z: o.z + def.button.z, r: LAYOUT.BUTTON.radius + 0.35 },
+      ...gateZones(def).map((zn) => ({ x: o.x + zn.x, z: o.z + zn.z, r: zn.r + 0.25 })),
       ...(def.lagoon ? [{ x: o.x + def.lagoon.x, z: o.z + def.lagoon.z, r: Math.max(def.lagoon.rx, def.lagoon.rz) + 0.3 }] : []),
     ];
     const land = new RectRegion(o.x, o.z, FENCE.hx - 0.4, FENCE.hz - 0.4, landAvoid);
     const critterPoints = pickSpawnPoints(def.critter === 'none' ? 0 : def.critters + (def.guards ?? 0), this.rng, { hx: FENCE.hx - 0.5, hz: FENCE.hz - 0.5 }, [
-      ...exclusions, { x: def.button.x, z: def.button.z, r: 1.1 },
+      ...exclusions,
       ...points.map((p) => ({ x: p.x, z: p.y, r: 0.5 })),
     ], 0.8);
     critterPoints.forEach((p, i) => {
@@ -358,8 +387,25 @@ export class Game {
       lv.critters.push(king);
     }
 
+    // Gate items (weight, mirrors, key, pumpkins...) go on free spots last.
+    lv.decoyKinds = decoyKinds;
+    const taken = [...exclusions, ...points.map((pt) => ({ x: pt.x, z: pt.y, r: 0.55 }))];
+    const env = this.gateEnv(lv, (kind, x, z, y) => {
+      if (x === undefined || z === undefined) {
+        const [pt] = pickSpawnPoints(1, this.rng, SPAWN, taken, 0.5);
+        x = pt?.x ?? 0;
+        z = pt?.y ?? 0;
+        taken.push({ x, z, r: 0.6 });
+      }
+      return add(new Collectible(kind, { x: o.x + x, y: y ?? 0.6, z: o.z + z }, this.rng() * Math.PI * 2, this.phys, this.scene, false));
+    });
+    for (const g of lv.gates) g.spawn(env);
+
     lv.targets = targets;
-    if (lv === this.cur) this.applyTargets(targets);
+    if (lv === this.cur) {
+      this.applyTargets(targets);
+      this.refreshGoals();
+    }
   }
 
   private targetName(id: string): string {
@@ -380,6 +426,8 @@ export class Game {
     if (this.phase !== 'INTRO') return;
     // A new game starts a new monster; a resumed one keeps its pieces.
     if (this.campaign.rewardsPieces && this.currentLevel === 0) this.pieces = {};
+    this.booster = null;
+    this.pendingBooster = null;
     this.startLevel();
   }
 
@@ -391,6 +439,7 @@ export class Game {
     this.hud.hideOverlay();
     this.input.consumeDrop();
     this.saveProgress(this.currentLevel);
+    this.applyBooster();
     if (this.campaign.rewardsPieces) {
       // Fill any slots missing for islands already cleared (old saves, jumps).
       SLOTS.slice(0, this.currentLevel).forEach((slot) => { this.pieces[slot] ??= rollPiece(Math.random); });
@@ -535,22 +584,38 @@ export class Game {
       case 'INTRO':
       case 'TRAVEL':
       case 'FINAL':
+        this.hud.showGoals(false);
         this.hud.setBanner('');
         break;
-      case 'PHASE_WEIGHT':
-        this.hud.setBanner('The hatch is shut tight', this.cur.def.hint ?? 'explore the island with the claw');
+      case 'PHASE_WEIGHT': {
+        const gates = this.cur.gates;
+        const first = gates.find((g) => !g.solved) ?? gates[0];
+        const multi = gates.length > 1 ? `${gates.length} seals guard the hatch` : '';
+        this.hud.setBanner(first?.instruction ?? 'The hatch is shut tight', multi || this.cur.def.hint || 'explore the island with the claw');
+        const env = this.gateEnv(this.cur);
+        for (const g of gates) g.activate(env);
+        this.refreshGoals();
+        this.hud.showGoals(true);
         break;
+      }
       case 'HOLE_OPENING':
+        this.hud.showGoals(false);
         this.hud.setBanner('The hatch opens!', '');
         break;
       case 'PHASE_COLLECT':
+        this.hud.showGoals(false);
         this.hud.setBanner(`Find the ${this.targets.length} treasures`, this.cur.def.collectHint ?? 'drop them into the hole');
         if (this.cur.def.conveyor) this.cur.diorama.conveyorRunning = true;
         this.hud.showTargets(true);
         break;
       case 'RESULTS': {
+        this.hud.showGoals(false);
         this.hud.setBanner('');
-        const b = computeScore(this.stats, this.targets.length);
+        const b = computeScore(this.stats, this.targets.length, this.booster === 'points' ? 2 : 1);
+        // The power-up only lasted for this island.
+        this.booster = null;
+        this.applyBooster();
+        this.boosterShown = false;
         this.results.push({ level: this.cur.def, breakdown: b, stats: this.stats });
         const isLast = this.currentLevel >= this.levelDefs.length - 1;
         if (this.music) {
@@ -565,8 +630,35 @@ export class Game {
 
   private continueFromResults(): void {
     if (this.phase !== 'RESULTS') return;
-    if (this.currentLevel >= this.levelDefs.length - 1) this.showFinal();
-    else this.startTravel(this.currentLevel + 1);
+    if (this.currentLevel >= this.levelDefs.length - 1) { this.showFinal(); return; }
+    if (this.campaign.boosters && !this.boosterShown) {
+      // A booster pack first: tear it open for next island's power-up.
+      this.boosterShown = true;
+      const ids = Object.keys(BOOSTERS) as BoosterId[];
+      const id = ids[Math.floor(Math.random() * ids.length)];
+      this.hud.showBooster(BOOSTERS[id], () => {
+        this.pendingBooster = id;
+        this.sfx.fanfare();
+      }, () => this.startTravel(this.currentLevel + 1));
+      return;
+    }
+    this.startTravel(this.currentLevel + 1);
+  }
+
+  /** Apply the active booster to the claw and the HUD. */
+  private applyBooster(): void {
+    this.claw.speedScale = this.booster === 'speed' ? 2 : 1;
+    this.claw.instantCharges = this.booster === 'instant' ? 3 : 0;
+    this.showBooster();
+  }
+
+  private showBooster(): void {
+    const b = this.booster ? BOOSTERS[this.booster] : null;
+    if (b && this.booster === 'instant' && this.claw.instantCharges <= 0) {
+      this.hud.setBooster(null);
+      return;
+    }
+    this.hud.setBooster(b ? { icon: b.icon, label: b.pill(this.claw.instantCharges) } : null);
   }
 
   private showFinal(): void {
@@ -633,12 +725,15 @@ export class Game {
 
   private arrive(to: number): void {
     this.music?.playIsland(to);
+    this.booster = this.pendingBooster;
+    this.pendingBooster = null;
     this.currentLevel = to;
     const def = this.cur.def;
     this.claw.setOrigin(def.origin);
     this.claw.pos.set(def.origin.x, LAYOUT.GANTRY.restY, def.origin.z);
     this.claw.endTravel();
     this.applyLevelRules(def);
+    this.applyBooster();
     this.viewOrigin.set(def.origin.x, 0, def.origin.z);
     this.env.focus(def.origin);
     this.hud.setLevel(def);
@@ -670,9 +765,55 @@ export class Game {
     for (const g of this.cur.critters) if (g.charging) g.stopCharge();
   }
 
-  private onButtonPressed(lv: LevelRuntime): void {
+  /** The slice of the game a gate is allowed to use. */
+  private gateEnv(lv: LevelRuntime, spawn?: GateEnv['spawn']): GateEnv {
+    const o = lv.def.origin;
+    return {
+      rng: this.rng,
+      claw: this.claw,
+      sfx: this.sfx,
+      decoyKinds: lv.decoyKinds,
+      spawn: spawn ?? ((kind, x = 0, z = 0, y = 0.6) => {
+        const c = new Collectible(kind, { x: o.x + x, y, z: o.z + z }, 0, this.phys, this.scene, false);
+        lv.collectibles.push(c);
+        return c;
+      }),
+      addCritter: (c) => {
+        c.onSquawk = () => this.sfx.squawk();
+        lv.critters.push(c);
+      },
+      consume: (c) => {
+        this.spawnParticles(c.position.clone(), 0x8ff0c0, 10);
+        this.claw.forgetHeld(c);
+        c.dispose();
+      },
+      toast: (text, cls) => this.hud.toast(text, cls),
+    };
+  }
+
+  /** The "open the hatch" list in the HUD. */
+  private refreshGoals(): void {
+    const cards: GoalCard[] = this.cur.gates.flatMap((g) => g.goals());
+    this.hud.setGoals(cards.map((c) => ({
+      kind: c.key,
+      name: c.kind && c.label === c.kind ? this.targetName(c.kind) : c.label,
+      icon: (c.kind && this.icons[c.kind]) || '',
+      isImage: Boolean(c.kind && this.icons[c.kind]),
+      done: c.done,
+    })));
+  }
+
+  private onGateSolved(lv: LevelRuntime, gate: Gate): void {
     if (lv !== this.cur || this.phase !== 'PHASE_WEIGHT') return;
-    this.sfx.buttonPress();
+    this.refreshGoals();
+    const left = lv.gates.filter((g) => !g.solved);
+    if (left.length > 0) {
+      this.hud.toast('Seal broken!', 'good');
+      this.sfx.deliver();
+      this.hud.setBanner(left[0].instruction, `${lv.gates.length - left.length} of ${lv.gates.length} seals broken`);
+      return;
+    }
+    if (gate.constructor.name === 'WeightGate') this.sfx.buttonPress();
     this.shake = 0.15;
     this.setPhase('HOLE_OPENING');
     setTimeout(() => {
@@ -697,7 +838,7 @@ export class Game {
     this.hud.setPauseVisible(this.canPause());
 
     if (this.phase === 'INTRO' && this.input.consumeAny()) this.startRun();
-    if (this.phase === 'RESULTS' && this.input.consumeDrop()) this.continueFromResults();
+    if (this.phase === 'RESULTS' && this.input.consumeDrop() && !this.hud.advanceBooster()) this.continueFromResults();
     if (this.phase === 'FINAL' && this.input.consumeDrop()) this.reset();
 
     const playing = this.phase === 'PHASE_WEIGHT' || this.phase === 'HOLE_OPENING' || this.phase === 'PHASE_COLLECT';
@@ -722,10 +863,11 @@ export class Game {
     const near = this.phase === 'TRAVEL' ? [this.travel.from, this.travel.to] : [this.currentLevel];
     this.levels.forEach((lv, i) => {
       const visible = near.some((n) => i >= n - 1 && i <= n + 2);
-      lv.diorama.root.visible = lv.button.group.visible = lv.hole.group.visible = visible;
+      lv.diorama.root.visible = lv.hole.group.visible = visible;
+      for (const g of lv.gates) g.group.visible = visible;
       if (!visible) return;
       for (const ch of lv.critters) ch.animate(dt, this.time);
-      lv.button.update();
+      for (const g of lv.gates) g.update(dt, this.time);
       lv.hole.update(dt);
       lv.diorama.update(dt, this.time, lv === this.cur ? wind : 0);
     });
@@ -774,10 +916,13 @@ export class Game {
     this.updateGuards();
     this.pushConveyor();
     const descending = this.claw.state === 'DESCENDING' || this.claw.state === 'CLOSING';
+    const env = this.gateEnv(this.cur);
+    for (const g of this.cur.gates) g.step(dt, env);
     for (const lv of this.levels) {
-      lv.button.step(dt);
       if (lv.critters.length === 0) continue;
-      const obstacles: Obstacle[] = [];
+      // Gate stations (tombstones, cauldron, scale...) are solid to critters too.
+      const o = lv.def.origin;
+      const obstacles: Obstacle[] = gateZones(lv.def).map((zn) => ({ x: o.x + zn.x, z: o.z + zn.z, r: zn.r * 0.8 }));
       for (const c of lv.collectibles) {
         if (c.removed || c.held) continue;
         const p = c.body.translation();
@@ -794,7 +939,8 @@ export class Game {
 
   private postStep(): void {
     const lv = this.cur;
-    lv.button.poll(this.phys.DT);
+    const env = this.gateEnv(lv);
+    for (const g of lv.gates) g.poll(this.phys.DT, env);
     if (lv.hole.isOpen) {
       for (const b of lv.hole.poll()) {
         const c = collectibleOf(b);
@@ -839,6 +985,12 @@ export class Game {
 
   private onEnteredHole(c: Collectible): void {
     const p = c.position.clone();
+    if (GATE_TOOL_KINDS.has(c.kind)) {
+      // Tools are never a wrong drop: they pop back out somewhere on the island.
+      this.claw.forgetHeld(c);
+      this.onFellOff(c);
+      return;
+    }
     if (c.isTarget && !c.delivered && this.phase === 'PHASE_COLLECT') {
       c.delivered = true;
       this.deliverTarget(c.kind, c.def.name, p);
@@ -854,10 +1006,10 @@ export class Game {
 
   private onFellOff(c: Collectible): void {
     const def = this.cur.def;
-    if ((c.isTarget && !c.delivered) || c.kind === 'weight' || c.kind === 'magnet') {
+    if ((c.isTarget && !c.delivered) || GATE_TOOL_KINDS.has(c.kind)) {
       const { SPAWN, HOLE } = LAYOUT;
       const [p] = pickSpawnPoints(1, this.rng, SPAWN, [
-        { x: def.button.x, z: def.button.z, r: 1.0 }, { x: HOLE.x, z: HOLE.z, r: 1.0 },
+        ...gateZones(def), { x: HOLE.x, z: HOLE.z, r: 1.0 },
       ]);
       c.teleport({ x: def.origin.x + (p?.x ?? 0), y: 3, z: def.origin.z + (p?.y ?? 0) });
       this.hud.toast(`${c.def.name} came back!`);

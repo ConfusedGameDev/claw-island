@@ -69,6 +69,26 @@ export interface ConveyorDef {
   interval: number;
 }
 
+/**
+ * How the hatch is opened. Every gate on an island must be solved. Positions
+ * are island-local.
+ * - weight: rest the heavy weight on the big button at (x, z).
+ * - laser: bounce the beam from `emitter` (dir in radians, 0 = +X) off mirrors into the crystal at (x, z).
+ * - key: carry the key from `key` to the lock at (x, z) while Frankenstein tries to snatch it.
+ * - cauldron: drop the recipe's ingredients into the cauldron at (x, z).
+ * - scale: load the pan until it balances the counterweight (scale centred at x, z).
+ * - bells: ring the tombstone bells in the order they lit up (row centred at x, z).
+ */
+export type GateSpec =
+  | { kind: 'weight'; x: number; z: number }
+  | { kind: 'laser'; x: number; z: number; emitter: { x: number; z: number; dir: number }; mirrors: number }
+  | { kind: 'key'; x: number; z: number; key: { x: number; z: number } }
+  | { kind: 'cauldron'; x: number; z: number }
+  | { kind: 'scale'; x: number; z: number }
+  | { kind: 'bells'; x: number; z: number; along?: 'x' | 'z' };
+
+export type GateKind = GateSpec['kind'];
+
 export interface LevelDef {
   index: number;
   name: string;
@@ -110,6 +130,8 @@ export interface LevelDef {
   /** Future: everything is too heavy for the claw; a magnet tool lies here. */
   heavy?: boolean;
   magnet?: { x: number; z: number };
+  /** How the hatch opens (default: the weight on the button). */
+  gates?: GateSpec[];
   /** Cloud: gravity multiplier for loose objects. */
   gravityScale?: number;
 }
@@ -233,3 +255,27 @@ const SPECS: LevelSpec[] = [
 /** The original ten islands (the classic campaign). */
 export const CLASSIC_LEVELS: LevelDef[] = SPECS.map((spec, index) => ({ ...spec, index, origin: levelOrigin(index) }));
 export const LEVELS = CLASSIC_LEVELS;
+
+/** The gates that guard an island's hatch. */
+export function levelGates(def: LevelDef): GateSpec[] {
+  return def.gates ?? [{ kind: 'weight', x: def.button.x, z: def.button.z }];
+}
+
+/** Island-local spots gate stations occupy (for spawn and decoration exclusions). */
+export function gateZones(def: LevelDef): { x: number; z: number; r: number }[] {
+  const out: { x: number; z: number; r: number }[] = [];
+  for (const g of levelGates(def)) {
+    switch (g.kind) {
+      case 'weight': out.push({ x: g.x, z: g.z, r: 1.0 }, { x: def.weight.x, z: def.weight.z, r: 0.7 }); break;
+      case 'laser': out.push({ x: g.x, z: g.z, r: 0.6 }, { x: g.emitter.x, z: g.emitter.z, r: 0.6 }); break;
+      case 'key': out.push({ x: g.x, z: g.z, r: 0.7 }, { x: g.key.x, z: g.key.z, r: 0.5 }); break;
+      case 'cauldron': out.push({ x: g.x, z: g.z, r: 0.8 }); break;
+      case 'scale': out.push({ x: g.x - 0.45, z: g.z, r: 0.6 }, { x: g.x + 0.45, z: g.z, r: 0.6 }); break;
+      case 'bells': for (let i = 0; i < 4; i++) {
+        const o = (i - 1.5) * 0.72;
+        out.push(g.along === 'z' ? { x: g.x, z: g.z + o, r: 0.45 } : { x: g.x + o, z: g.z, r: 0.45 });
+      } break;
+    }
+  }
+  return out;
+}

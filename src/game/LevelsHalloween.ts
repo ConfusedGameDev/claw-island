@@ -114,42 +114,51 @@ const SPECS: LevelSpec[] = [
   },
   {
     name: 'Graveyard', theme: T.graveyard, pool: GRAVE, targets: 3, decoys: 13, critter: 'crab', critters: 4, critterSkin: 'skeleton',
+    gates: [{ kind: 'bells', x: 1.75, z: -2.05 }],
     gripScale: 1.0, button: { x: -2.6, z: -1.9 }, weight: { x: 2.2, z: 1.9 },
     lagoon: { x: -1.6, z: 1.3, rx: 1.15, rz: 0.85, kind: 'goo' }, special: 'diamondcrab', specialName: 'Spirit Crab',
     hint: 'A spirit crab haunts the open grave.',
   },
   {
     name: 'Trick-or-Treat', theme: T.trick, pool: TRICK, targets: 3, decoys: 12, critter: 'none', critters: 0,
+    gates: [{ kind: 'scale', x: 2.3, z: -1.8 }],
     gripScale: 1.0, button: { x: 2.5, z: -1.8 }, weight: { x: -2.2, z: 1.8 }, hint: 'Sugar rush: everything bounces!',
   },
   {
     name: 'Frozen Crypt', theme: T.crypt, pool: CRYPT, targets: 4, decoys: 14, critter: 'chicken', critters: 4, guards: 1, critterSkin: 'skeleton',
+    gates: [{ kind: 'key', x: 2.6, z: -1.8, key: { x: -2.4, z: 1.7 } }],
     gripScale: 1.0, button: { x: 2.6, z: -1.8 }, weight: { x: 0, z: 1.9 }, hint: 'The crypt floor is icy.',
   },
   {
-    name: "Witch's Brewery", theme: T.brewery, pool: BREW, targets: 3, decoys: 4, critter: 'none', critters: 0, gripScale: 1.0,
+    name: "Witch's Brewery", theme: T.brewery, pool: BREW, targets: 3, decoys: 4, critter: 'none', critters: 0, gates: [{ kind: 'cauldron', x: 2.6, z: -1.9 }],
+    gripScale: 1.0,
     button: { x: 2.6, z: -1.9 }, weight: { x: -2.4, z: 1.9 },
     conveyor: { x0: -3.5, x1: -0.62, z: -0.5, width: 0.9, speed: 0.45, feedJunk: 9, interval: 2.4 },
-    hint: 'The belt feeds the cauldron hatch.', collectHint: 'pull the junk off the belt before it falls in',
+    hint: 'The belt feeds the hatch.', collectHint: 'pull the junk off the belt before it falls in',
   },
   {
-    name: 'Mummy Tomb', theme: T.tomb, pool: TOMB, targets: 3, decoys: 13, critter: 'none', critters: 0, gripScale: 1.0,
+    name: 'Mummy Tomb', theme: T.tomb, pool: TOMB, targets: 3, decoys: 13, critter: 'none', critters: 0, gates: [{ kind: 'laser', x: 2.5, z: 1.9, emitter: { x: -3.7, z: -2.1, dir: 0 }, mirrors: 1 }],
+    gripScale: 1.0,
     button: { x: -2.6, z: -1.8 }, weight: { x: 2.4, z: 1.9 }, wind: 0.9, hint: 'A cursed sandstorm pushes the crane.',
   },
   {
     name: 'Haunted Mansion', theme: T.mansion, pool: MANSION, targets: 3, decoys: 12, critter: 'ghost', critters: 4, special: 'crownghost',
+    gates: [{ kind: 'weight', x: 2.6, z: 1.8 }, { kind: 'bells', x: 1.9, z: -2.05 }],
     gripScale: 1.0, button: { x: 2.6, z: 1.8 }, weight: { x: -2.4, z: -1.9 }, hint: 'Boo! Catch the Ghost King.',
   },
   {
     name: 'Vampire Castle', theme: T.vampire, pool: VAMP, targets: 4, decoys: 16, critter: 'chicken', critters: 5, guards: 2, critterSkin: 'skeleton',
+    gates: [{ kind: 'key', x: -2.6, z: 1.8, key: { x: 2.4, z: -1.9 } }],
     gripScale: 0.85, button: { x: -2.6, z: 1.8 }, weight: { x: 2.4, z: -1.9 }, hint: 'The Count is watching: grab dead centre.',
   },
   {
-    name: 'Mad Scientist Lab', theme: T.lab, pool: LAB, targets: 4, decoys: 10, critter: 'none', critters: 0, gripScale: 1.0,
-    button: { x: -2.6, z: 1.8 }, weight: { x: 2.4, z: 1.9 }, heavy: true, magnet: { x: 2.5, z: -1.9 }, hint: 'Everything here is too heavy... find the magnet!',
+    name: 'Mad Scientist Lab', theme: T.lab, pool: LAB, targets: 4, decoys: 10, critter: 'none', critters: 0, gates: [{ kind: 'laser', x: -2.4, z: 1.9, emitter: { x: -3.7, z: -2.1, dir: 0 }, mirrors: 2 }],
+    gripScale: 1.0,
+    button: { x: -2.6, z: 1.8 }, weight: { x: 2.4, z: 1.9 }, heavy: true, magnet: { x: -2.8, z: 0.3 }, hint: 'Everything here is too heavy... find the magnet!',
   },
   {
     name: "Witch's Sky", theme: T.sky, pool: SKY, targets: 4, decoys: 16, critter: 'chicken', critters: 3, guards: 1, critterSkin: 'pumpkin',
+    gates: [{ kind: 'cauldron', x: 2.6, z: -1.8 }, { kind: 'scale', x: -2.2, z: 1.75 }],
     gripScale: 1.0, button: { x: 2.6, z: -1.8 }, weight: { x: -2.4, z: 1.9 }, gravityScale: 0.35, hint: 'Broomstick heights: things float down slowly.',
   },
 ];

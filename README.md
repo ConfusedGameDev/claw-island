@@ -42,7 +42,7 @@ floats over the pot and is listed from the start.
 |---|---|---|
 | Weight | rest the heavy weight on the big button | Pumpkin Patch, Mummy Tomb, Haunted Mansion |
 | Bells | four tombstones chime a pattern; touch down on their bells in the same order | Graveyard, Haunted Mansion |
-| Scale | load the pan with carved pumpkins (1–3 pips each) to match the counterweight | Trick-or-Treat, Witch's Sky |
+| Scale | put two carved pumpkins (1–3 pips each) on the pan to match the counterweight; the scale then vanishes in a puff of smoke | Trick-or-Treat, Witch's Sky |
 | Key | carry the key to the padlock while Frankenstein stomps after the claw and swipes it loose | Frozen Crypt, Vampire Castle |
 | Cauldron | drop the recipe's ingredients in; anything else is spat back out | Witch's Brewery, Witch's Sky |
 | Laser | turn the claw to aim standing mirrors (the beam previews off a held mirror) and bounce the beam into the crystal | Mad Scientist Lab |

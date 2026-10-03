@@ -29,6 +29,7 @@ export const ICONS = {
   instant: svg('<path d="M12 2v5"/><circle cx="12" cy="8.5" r="2.2" fill="#d9c4a3"/><path d="M10 10 7 13.5l1.6 4M14 10l3 3.5-1.6 4"/><circle cx="12" cy="18" r="2.6" fill="#ff7fb0"/><path d="M4 4l1.5 1.5M20 4l-1.5 1.5M3 10h2M21 10h-2" stroke="#ffcf4a"/>'),
   close: svg('<path d="M6 6l12 12M18 6 6 18" stroke-width="2.6"/>'),
   rotate: svg('<path d="M3 12c0-2.5 4-4.5 9-4.5s9 2 9 4.5-4 4.5-9 4.5"/><path d="m9 14 3 2.5-3 2.5"/>'),
+  scale: svg('<path d="M12 4v15"/><path d="M8 20h8"/><path d="M4 7h16"/><circle cx="12" cy="4" r="1.3" fill="#ffcf4a"/><path d="M6 7 3.5 13h5z" fill="#ffcf4a"/><path d="M18 7l-2.5 6h5z" fill="#f28a35"/>'),
   token: svg('<circle cx="12" cy="12" r="8.5" fill="#e6d9ff"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>'),
 } as const;
 

@@ -515,6 +515,20 @@ export class Game {
     this.paused = true;
     this.input.consumeDrop();
     this.music?.duck(2);
+    this.showPauseMenu();
+  }
+
+  /** Debug tools are switched on/off with ten quick music toggles in the pause menu. */
+  private debugUnlocked = (() => { try { return localStorage.getItem('clawisland.debug') === '1'; } catch { return false; } })();
+
+  private toggleDebugTools(): void {
+    this.debugUnlocked = !this.debugUnlocked;
+    try { localStorage.setItem('clawisland.debug', this.debugUnlocked ? '1' : '0'); } catch { /* ignore */ }
+    this.hud.toast(this.debugUnlocked ? 'Debug tools on' : 'Debug tools off', 'good');
+    this.showPauseMenu();
+  }
+
+  private showPauseMenu(): void {
     let monster: PauseMonster | undefined;
     if (this.campaign.rewardsPieces) {
       this.portrait ??= new MonsterPortrait();
@@ -536,10 +550,21 @@ export class Game {
       onRestart: () => this.jumpTo(this.currentLevel),
       onJump: (i) => this.jumpTo(i),
       music: this.music ? { on: this.music.enabled, toggle: () => this.music!.toggle() } : undefined,
-      debug: DEBUG_TOOLS ? {
+      debug: DEBUG_TOOLS && this.debugUnlocked ? {
         onOpenGate: this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugOpenGate(); } : undefined,
         onComplete: this.collecting || this.phase === 'PHASE_WEIGHT' ? () => { this.resume(); this.debugComplete(); } : undefined,
+        boosters: (Object.keys(BOOSTERS) as BoosterId[]).map((id) => ({
+          icon: BOOSTERS[id].icon,
+          name: BOOSTERS[id].name,
+          onUse: () => {
+            this.booster = id;
+            this.applyBooster();
+            this.resume();
+            this.hud.toast(`${BOOSTERS[id].name}!`, 'good');
+          },
+        })),
       } : undefined,
+      onSecret: DEBUG_TOOLS ? () => this.toggleDebugTools() : undefined,
     });
   }
 
@@ -911,13 +936,17 @@ export class Game {
   /** The "open the hatch" list in the HUD. */
   private refreshGoals(): void {
     const gates = this.gateHintShown ? this.cur.gates : this.cur.gates.filter((g) => g.revealGoals);
-    const cards: GoalCard[] = gates.flatMap((g) => g.goals());
+    // Several stations: head each one's goals so nobody takes the scale's pumpkins for a cauldron ingredient.
+    const grouped = gates.length > 1;
+    const cards: (GoalCard & { group?: string })[] = gates.flatMap((g) => g.goals().map((c) => ({ ...c, group: grouped ? g.station : undefined })));
     this.hud.setGoals(cards.map((c) => ({
       kind: c.key,
       name: c.kind && c.label === c.kind ? this.targetName(c.kind) : c.label,
       icon: (c.kind && this.icons[c.kind]) || '',
       isImage: Boolean(c.kind && this.icons[c.kind]),
+      svg: c.icon && c.icon in ICONS ? ICONS[c.icon as keyof typeof ICONS] : undefined,
       done: c.done,
+      group: c.group,
     })));
   }
 
@@ -1152,7 +1181,6 @@ export class Game {
       }
       this.spawnParticles(c.position.clone(), PAL.star, 6);
       c.teleport({ x: o.x + nx, y: 0.9, z: o.z + nz });
-      if (c.isTarget || GATE_TOOL_KINDS.has(c.kind)) this.hud.toast(`${c.def.name} hopped back in reach`);
     }
     // Never leave the island unwinnable: every treasure still owed, and everything a
     // gate still needs (the cauldron's ingredients), must exist somewhere (on the
@@ -1263,8 +1291,7 @@ export class Game {
         ...gateZones(def), { x: HOLE.x, z: HOLE.z, r: 1.0 },
       ]);
       c.teleport({ x: def.origin.x + (p?.x ?? 0), y: 3, z: def.origin.z + (p?.y ?? 0) });
-      this.hud.toast(`${c.def.name} came back!`);
-      this.sfx.returned();
+      this.spawnParticles(new THREE.Vector3(def.origin.x + (p?.x ?? 0), 0.6, def.origin.z + (p?.y ?? 0)), PAL.star, 6);
     } else {
       this.claw.forgetHeld(c);
       c.dispose();

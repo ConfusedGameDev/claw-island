@@ -48,6 +48,8 @@ export abstract class Gate {
   solved = false;
   /** Its goal list is shown from the start (no puzzle in finding out what it wants). */
   revealGoals = false;
+  /** Heading for its goals when an island has more than one gate. */
+  station = 'Hatch';
   onSolved: (() => void) | null = null;
   /** Something visible changed in the goal list. */
   onGoalsChanged: (() => void) | null = null;
@@ -125,6 +127,7 @@ export class WeightGate extends Gate {
   readonly button: Button;
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, spec: Extract<GateSpec, { kind: 'weight' }>) {
     super(scene, phys, level);
+    this.station = 'Button';
     this.button = new Button(scene, phys, level.origin, { x: spec.x, z: spec.z });
     this.button.onPressed = () => this.solve();
     this.group.add(this.button.group);
@@ -157,6 +160,7 @@ export class LaserGate extends Gate {
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, private spec: Extract<GateSpec, { kind: 'laser' }>) {
     super(scene, phys, level);
+    this.station = 'Crystal';
     const { FENCE } = LAYOUT;
     const e = this.world(spec.emitter.x, spec.emitter.z);
     this.emitterPos = new THREE.Vector2(e.x, e.z);
@@ -302,6 +306,7 @@ export class KeyGate extends Gate {
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, private spec: Extract<GateSpec, { kind: 'key' }>) {
     super(scene, phys, level);
+    this.station = 'Padlock';
     this.lockPos = this.world(spec.x, spec.z);
     const p = this.lockPos;
     const stone = plastic(0x6b6488, { roughness: 0.8 });
@@ -417,6 +422,7 @@ export class CauldronGate extends Gate {
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, spec: Extract<GateSpec, { kind: 'cauldron' }>) {
     super(scene, phys, level);
+    this.station = 'Cauldron';
     this.pos = this.world(spec.x, spec.z);
     const p = this.pos;
     const iron = plastic(0x2a2433, { roughness: 0.45, metalness: 0.3 });
@@ -543,12 +549,11 @@ export class CauldronGate extends Gate {
   }
 
   poll(_dt: number, env: GateEnv): void {
-    if (this.solved) return;
     const now = performance.now();
     this.phys.world.intersectionPairsWith(this.sensor, (other) => {
       const c = collectibleOf(other.parent());
       if (!c || c.removed || c.held) return;
-      if (this.recipe.includes(c.kind) && !this.added.has(c.kind)) {
+      if (!this.solved && this.recipe.includes(c.kind) && !this.added.has(c.kind)) {
         this.added.add(c.kind);
         env.consume(c);
         env.sfx.tone(300, 0.25, 'sine', 0.14, 600);
@@ -559,7 +564,7 @@ export class CauldronGate extends Gate {
         if (this.added.size >= this.recipe.length) this.solve();
         return;
       }
-      // Not on the recipe (or already in): BLURP, out it goes.
+      // Not on the recipe, already in, or the potion is done: BLURP, out it goes.
       const handle = c.body.handle;
       if ((this.spitCooldown.get(handle) ?? 0) > now) return;
       this.spitCooldown.set(handle, now + 800);
@@ -569,7 +574,7 @@ export class CauldronGate extends Gate {
       const l = Math.hypot(dx, dz) || 1;
       c.body.setLinvel({ x: (dx / l) * 2.2, y: 3.2, z: (dz / l) * 2.2 + 0.6 }, true);
       env.sfx.tone(140, 0.25, 'sawtooth', 0.12, 80);
-      env.toast('Not in the recipe! Blurp.', 'bad');
+      env.toast(GOURDS.includes(c.kind) ? 'Pumpkins go on the scale! Blurp.' : this.solved ? 'The potion is done! Blurp.' : 'Not in the recipe! Blurp.', 'bad');
     });
   }
 
@@ -628,6 +633,7 @@ export class ScaleGate extends Gate {
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, spec: Extract<GateSpec, { kind: 'scale' }>) {
     super(scene, phys, level);
+    this.station = 'Scale';
     this.pos = this.world(spec.x, spec.z);
     const p = this.pos;
     const S = SCALE_SIZE;
@@ -688,7 +694,7 @@ export class ScaleGate extends Gate {
   }
 
   get instruction(): string { return 'Balance the scale with 2 pumpkins'; }
-  goals(): GoalCard[] { return [{ key: 'scale', label: `2 pumpkins, ${this.target} pips`, kind: 'gourd2', done: this.solved }]; }
+  goals(): GoalCard[] { return [{ key: 'scale', label: `2 pumpkins, ${this.target} pips`, icon: 'scale', done: this.solved }]; }
 
   spawn(env: GateEnv): void {
     this.sfx = env.sfx;
@@ -808,6 +814,7 @@ export class BellsGate extends Gate {
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, spec: Extract<GateSpec, { kind: 'bells' }>) {
     super(scene, phys, level);
+    this.station = 'Bells';
     const stone = plastic(0xb3add0, { roughness: 0.85 });
     const carved = plastic(0x8f88b0, { roughness: 0.9 });
     const dirt = plastic(0x5a4a6e, { roughness: 0.95 });

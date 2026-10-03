@@ -41,7 +41,9 @@ export interface PauseMenu {
   /** Music toggle (Spooky Night only). */
   music?: { on: boolean; toggle: () => boolean };
   /** Debug shortcuts (shown only while debug tools are on). */
-  debug?: { onOpenGate?: () => void; onComplete?: () => void };
+  debug?: { onOpenGate?: () => void; onComplete?: () => void; boosters?: { icon: string; name: string; onUse: () => void }[] };
+  /** Ten quick music toggles: the secret switch for the debug tools. */
+  onSecret?: () => void;
 }
 
 /** The finished monster (final screen). */
@@ -214,11 +216,17 @@ export class Hud {
   }
 
   /** The "open the hatch" checklist shown while the hatch is shut. */
-  setGoals(cards: (TargetCard & { done: boolean })[]): void {
+  /** The "open the hatch" list; `group` starts a new heading (one per station when there are several). */
+  setGoals(cards: (TargetCard & { done: boolean; group?: string; svg?: string })[]): void {
     this.goalsEl.innerHTML = '<div class="targets-title"><span class="drawer-arrow">◀</span><span class="drawer-label">Open the hatch</span></div>';
+    let group: string | undefined;
     for (const c of cards) {
+      if (c.group && c.group !== group) {
+        group = c.group;
+        this.goalsEl.append(el('div', 'goal-group', `<span>${group}</span>`));
+      }
       const card = el('div', `card${c.done ? ' done' : ''}`);
-      const icon = c.isImage ? `<img src="${c.icon}" alt="${c.name}" />` : `<span class="card-fallback">${ICONS.token}</span>`;
+      const icon = c.isImage ? `<img src="${c.icon}" alt="${c.name}" />` : `<span class="card-fallback">${c.svg ?? ICONS.token}</span>`;
       card.innerHTML = `<div class="card-icon">${icon}<div class="check">✓</div></div><div class="card-name">${c.name}</div>`;
       this.goalsEl.append(card);
     }
@@ -414,7 +422,15 @@ export class Hud {
       const music = m.music;
       const label = (on: boolean) => withIcon(on ? 'music' : 'musicOff', on ? 'Music on' : 'Music off');
       const mb = el('button', 'big-btn ghost small', label(music.on));
-      mb.addEventListener('click', () => { mb.innerHTML = label(music.toggle()); });
+      let taps = 0;
+      let lastTap = 0;
+      mb.addEventListener('click', () => {
+        mb.innerHTML = label(music.toggle());
+        const now = performance.now();
+        taps = now - lastTap < 2500 ? taps + 1 : 1;
+        lastTap = now;
+        if (taps >= 10) { taps = 0; m.onSecret?.(); }
+      });
       mid.append(mb);
     }
     card.append(mid);
@@ -439,6 +455,15 @@ export class Hud {
       else done.disabled = true;
       dbg.append(open, done);
       card.append(dbg);
+      if (m.debug.boosters?.length) {
+        const row = el('div', 'btns debug-btns');
+        for (const b of m.debug.boosters) {
+          const bb = el('button', 'big-btn ghost small', `${b.icon}<span>${b.name}</span>`);
+          bb.addEventListener('click', b.onUse);
+          row.append(bb);
+        }
+        card.append(row);
+      }
     }
     card.append(hint('Esc · resume', ''));
     this.overlay.append(card);

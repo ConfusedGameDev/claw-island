@@ -69,9 +69,10 @@ const CAMPAIGN_KEY = 'clawisland.campaign';
 export const PUBLIC_GAME_URL = '';
 
 /**
- * Debug shortcuts in the pause menu (open the gate, complete the island).
- * On for now so they work in the mobile test builds; set to
- * `import.meta.env.DEV` before release to keep them out of store builds.
+ * Debug shortcuts in the pause menu (open the gate, complete the island,
+ * grant a power-up). Hidden until the music button is toggled 10 times in a
+ * row in the pause menu (again to hide). Set to `import.meta.env.DEV` before
+ * release to remove them from store builds entirely.
  */
 export const DEBUG_TOOLS: boolean = true;
 

@@ -11,6 +11,7 @@ import { Chicken } from '../entities/Chicken';
 import { Crab } from '../entities/Crab';
 import { Ghost } from '../entities/Ghost';
 import { type Critter, type Obstacle, RectRegion, EllipseRegion } from '../entities/Critter';
+import { BatFlight, FLYING_KINDS } from '../entities/BatFlight';
 import { tickWater } from '../scene/Water';
 import {
   COLLECTIBLE_KINDS, GATE_TOOL_KINDS, PICKUP_KINDS, Collectible, KINDS, collectibleOf, pickSpawnPoints, renderIcons, type Kind,
@@ -116,6 +117,7 @@ export class Game {
   private deliveredKinds = new Set<string>();
   private watchdogT = 0;
   private stranded = new Map<object, number>();
+  private bats = new WeakMap<Collectible, BatFlight>();
   /** Power-up active on the current island, and the one waiting for the next. */
   private booster: BoosterId | null = null;
   private pendingBooster: BoosterId | null = null;
@@ -947,6 +949,7 @@ export class Game {
       for (const g of lv.gates) g.group.visible = visible;
       if (!visible) return;
       for (const ch of lv.critters) ch.animate(dt, this.time);
+      for (const c of lv.collectibles) this.bats.get(c)?.animate(dt);
       for (const g of lv.gates) g.update(dt, this.time);
       lv.hole.update(dt);
       lv.diorama.update(dt, this.time, lv === this.cur ? wind : 0);
@@ -991,6 +994,19 @@ export class Game {
     }
   }
 
+  /** Bat prizes on the current island flutter around the pen. */
+  private stepBats(dt: number, descending: boolean): void {
+    const def = this.cur.def;
+    let env: Parameters<BatFlight['step']>[1] | null = null;
+    for (const c of this.cur.collectibles) {
+      if (c.removed || !FLYING_KINDS.has(c.kind)) continue;
+      let f = this.bats.get(c);
+      if (!f) { f = new BatFlight(c, this.rng); this.bats.set(c, f); }
+      env ??= { origin: def.origin, zones: gateZones(def), clawPos: this.claw.pos, descending, gravity: def.gravityScale ?? 1 };
+      f.step(dt, env);
+    }
+  }
+
   private preStep(dt: number, playing: boolean): void {
     this.claw.step(dt, this.input, playing);
     this.updateGuards();
@@ -998,6 +1014,7 @@ export class Game {
     const descending = this.claw.state === 'DESCENDING' || this.claw.state === 'CLOSING';
     const env = this.gateEnv(this.cur);
     for (const g of this.cur.gates) g.step(dt, env);
+    this.stepBats(dt, descending);
     for (const lv of this.levels) {
       if (lv.critters.length === 0) continue;
       // Gate stations (tombstones, cauldron, scale...) are solid to critters too.
@@ -1006,12 +1023,12 @@ export class Game {
       for (const c of lv.collectibles) {
         if (c.removed || c.held) continue;
         const p = c.body.translation();
-        if (p.y < 0.6) obstacles.push({ x: p.x, z: p.z, r: 0.45 });
+        if (p.y < 0.6) obstacles.push({ x: p.x, z: p.z, r: 0.45, soft: c.def.mass < 2 });
       }
       const n = obstacles.length;
       for (const ch of lv.critters) {
         obstacles.length = n;
-        for (const o of lv.critters) if (o !== ch && !o.removed && !o.held) obstacles.push({ x: o.position.x, z: o.position.z, r: 0.4 });
+        for (const o of lv.critters) if (o !== ch && !o.removed && !o.held) obstacles.push({ x: o.position.x, z: o.position.z, r: 0.4, soft: true });
         ch.step(dt, obstacles, this.claw.pos, descending && lv === this.cur, lv.hole.isOpen);
       }
     }

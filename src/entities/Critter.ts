@@ -6,7 +6,8 @@ import type { Grabbable, GrabbableUserData, GrabDef } from './Grabbable';
 import type { LevelDef } from '../game/Levels';
 import { clamp, randRange } from '../util/math';
 
-export interface Obstacle { x: number; z: number; r: number }
+/** Something to keep clear of; soft ones (loose prizes, other critters) can be shouldered past when boxed in. */
+export interface Obstacle { x: number; z: number; r: number; soft?: boolean }
 
 /** Where a critter is allowed to roam (world space). */
 export interface Region {
@@ -110,6 +111,10 @@ export abstract class Critter implements Grabbable {
   private progressT = 0;
   private progressPos = new THREE.Vector2();
   private stuckStrikes = 0;
+  /** Seconds left of shoving through soft obstacles after getting boxed in. */
+  private bargeT = 0;
+  private bestDist = Infinity;
+  private bestT = 0;
   private fallVel = new THREE.Vector3();
   private fleeDir = new THREE.Vector2(1, 0);
   private readonly opts: CritterOpts;
@@ -219,7 +224,11 @@ export abstract class Critter implements Grabbable {
     this.stateT = 0;
     if (s === 'IDLE') this.stateDur = randRange(this.rng, this.opts.idleTime[0], this.opts.idleTime[1]);
     if (s === 'FLEE') this.stateDur = randRange(this.rng, 1.0, 1.6);
-    if (s === 'WANDER') this.pickTarget();
+    if (s === 'WANDER') {
+      this.pickTarget();
+      this.bestDist = Infinity;
+      this.bestT = 0;
+    }
   }
 
   private get holeX(): number { return this.level.origin.x + LAYOUT.HOLE.x; }
@@ -231,17 +240,101 @@ export abstract class Critter implements Grabbable {
   }
 
   private pickTarget(): void {
-    for (let i = 0; i < 16; i++) {
+    // Prefer a spot reachable in a straight line; settle for any free spot.
+    let fallback: { x: number; z: number } | null = null;
+    for (let i = 0; i < 24; i++) {
       const p = this.region.random(this.rng);
       if (this.inHoleZone(p.x, p.z, 0.55)) continue;
       const mid = { x: (p.x + this.pos.x) / 2, z: (p.z + this.pos.z) / 2 };
       if (this.inHoleZone(mid.x, mid.z, 0.3)) continue;
       // Don't aim at a spot that is currently occupied.
       if (this.lastObstacles.some((o) => Math.hypot(p.x - o.x, p.z - o.z) < o.r + 0.1)) continue;
-      this.target = p;
-      return;
+      if (Math.hypot(p.x - this.pos.x, p.z - this.pos.z) < 0.4) continue;
+      if (this.pathClear(p.x, p.z)) { this.target = p; return; }
+      fallback ??= p;
     }
-    this.target = { x: this.pos.x, z: this.pos.z };
+    this.target = fallback ?? { x: this.pos.x, z: this.pos.z };
+  }
+
+  /** Obstacle radius as this critter currently sees it (soft ones shrink while barging through). */
+  private radiusOf(ob: Obstacle): number {
+    return ob.soft && this.bargeT > 0 ? ob.r * 0.65 : ob.r;
+  }
+
+  /** Whether the straight walk to a point misses every obstacle (ones it already stands in are ignored). */
+  private pathClear(tx: number, tz: number): boolean {
+    const vx = tx - this.pos.x;
+    const vz = tz - this.pos.z;
+    const len2 = vx * vx + vz * vz || 1;
+    for (const ob of this.lastObstacles) {
+      const r = this.radiusOf(ob);
+      const ox = ob.x - this.pos.x;
+      const oz = ob.z - this.pos.z;
+      if (Math.hypot(ox, oz) < r) continue;
+      const t = clamp((ox * vx + oz * vz) / len2, 0, 1);
+      if (Math.hypot(ox - vx * t, oz - vz * t) < r + 0.05) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Context steering: score a fan of headings by how well they serve the
+   * wanted direction and how much they run into obstacles, walls or the open
+   * hatch over a short look-ahead, and return the best one. Unlike nudging the
+   * wanted direction, this always finds the gap around a cluster of
+   * obstacles and slides along walls instead of pushing into them.
+   */
+  private steer(wx: number, wz: number, obstacles: Obstacle[], look: number): { x: number; z: number } {
+    const N = 16;
+    let bestScore = -Infinity;
+    let bx = wx;
+    let bz = wz;
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const cx = Math.sin(a);
+      const cz = Math.cos(a);
+      let danger = 0;
+      for (const ob of obstacles) {
+        const r = this.radiusOf(ob);
+        const ox = ob.x - this.pos.x;
+        const oz = ob.z - this.pos.z;
+        const d = Math.hypot(ox, oz);
+        if (d > r + look + 0.2) continue;
+        const proj = ox * cx + oz * cz;
+        if (proj <= 0) continue;
+        const t = Math.min(proj, look);
+        const clearance = Math.hypot(ox - cx * t, oz - cz * t) - r;
+        if (clearance >= 0.18) continue;
+        // Close-by blockers matter more than ones at the edge of the look-ahead.
+        const near = 1 - 0.5 * (t / look);
+        danger = Math.max(danger, (1 - Math.max(0, clearance) / 0.18) * near);
+      }
+      // Walls (the region edge) and the hatch, probed at two distances.
+      for (const [f, w] of [[0.35, 1], [1, 0.6]] as const) {
+        const px = this.pos.x + cx * look * f;
+        const pz = this.pos.z + cz * look * f;
+        const c = this.region.clamp(px, pz);
+        if (Math.abs(c.x - px) + Math.abs(c.z - pz) > 0.01 || this.inHoleZone(px, pz, 0.3)) danger = Math.max(danger, w);
+      }
+      const interest = cx * wx + cz * wz;
+      const keep = Math.cos(a - this.heading) * 0.15;
+      const score = interest + keep - danger * 2.2;
+      if (score > bestScore) { bestScore = score; bx = cx; bz = cz; }
+    }
+    return { x: bx, z: bz };
+  }
+
+  /** Turn toward a direction (rad/s limited) and walk along the heading. */
+  private moveToward(dx: number, dz: number, speed: number, turn: number, dt: number): void {
+    const want = Math.atan2(dx, dz);
+    let diff = want - this.heading;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    this.heading += clamp(diff, -turn * dt, turn * dt);
+    // Slow down while turning hard so it doesn't plough into what it is avoiding.
+    const pace = speed * (0.45 + 0.55 * Math.max(0, Math.cos(diff)));
+    this.pos.x += Math.sin(this.heading) * pace * dt;
+    this.pos.z += Math.cos(this.heading) * pace * dt;
+    this.walkPhase += pace * dt * 14;
   }
 
   /** Give up on the current walk when no ground is being covered. */
@@ -253,21 +346,36 @@ export abstract class Critter implements Grabbable {
     const moved = Math.hypot(this.pos.x - this.progressPos.x, this.pos.z - this.progressPos.y);
     this.progressT = 0;
     this.progressPos.set(this.pos.x, this.pos.z);
-    if (moved < 0.1) {
+    const expected = (this.state === 'FLEE' ? this.opts.fleeSpeed : this.opts.walkSpeed) * 0.8;
+    if (moved < Math.min(0.1, expected * 0.3)) {
       this.stuckStrikes++;
-      // Turn away and pick somewhere new; after repeated strikes just rest a moment.
-      this.heading += Math.PI * (0.5 + this.rng() * 0.5);
-      this.enter(this.stuckStrikes >= 3 ? 'IDLE' : 'WANDER');
-      if (this.stuckStrikes >= 3) this.stuckStrikes = 0;
-    } else {
+      // Head somewhere new (pickTarget prefers a clear straight path); after
+      // repeated strikes it is boxed in, so shoulder past loose prizes for a bit.
+      if (this.stuckStrikes >= 3) {
+        this.stuckStrikes = 0;
+        this.unwedge();
+      }
+      this.enter('WANDER');
+    } else if (moved > expected * 0.6) {
+      // Only a real stretch of walking clears the record, not a shuffle in place.
       this.stuckStrikes = 0;
     }
+  }
+
+  /** Step straight out of a tight spot: toward the side with the most room. */
+  private unwedge(): void {
+    this.bargeT = 2.5;
+    const dir = this.steer(0, 0, this.lastObstacles, 0.6);
+    this.heading = Math.atan2(dir.x, dir.z);
+    this.pos.x += dir.x * 0.08;
+    this.pos.z += dir.z * 0.08;
   }
 
   /** Physics substep: drives the kinematic body. */
   step(dt: number, obstacles: Obstacle[], clawXZ: { x: number; z: number }, clawDescending: boolean, holeOpen: boolean): void {
     if (this.removed || this.state === 'HELD' || this.state === 'GONE') return;
     this.stateT += dt;
+    this.bargeT = Math.max(0, this.bargeT - dt);
     const o = this.opts;
     this.lastObstacles = obstacles;
 
@@ -293,40 +401,27 @@ export abstract class Critter implements Grabbable {
         let dx: number;
         let dz: number;
         if (this.state === 'FLEE') {
+          if (this.stateT >= this.stateDur) { this.enter('IDLE'); break; }
           dx = this.fleeDir.x;
           dz = this.fleeDir.y;
-          if (this.stateT >= this.stateDur) { this.enter('IDLE'); break; }
         } else {
           dx = this.target.x - this.pos.x;
           dz = this.target.z - this.pos.z;
           const dist = Math.hypot(dx, dz);
           if (dist < 0.12 || this.stateT > 7) { this.enter('IDLE'); break; }
+          // Walking but not getting any closer (circling a blocked spot): choose again.
+          if (dist < this.bestDist - 0.15) { this.bestDist = dist; this.bestT = this.stateT; }
+          else if (this.stateT - this.bestT > 2.5) { this.enter('WANDER'); break; }
           dx /= dist;
           dz /= dist;
-          // Steer around whatever is directly ahead instead of walking into it.
-          for (const ob of obstacles) {
-            const ox = ob.x - this.pos.x;
-            const oz = ob.z - this.pos.z;
-            const d = Math.hypot(ox, oz);
-            if (d > ob.r + 0.35 || d < 1e-4) continue;
-            const ahead = (ox * dx + oz * dz) / d;
-            if (ahead < 0.3) continue;
-            const side = (ox * dz - oz * dx) > 0 ? -1 : 1;
-            const w = 1 - Math.max(0, d - ob.r) / 0.35;
-            dx += -dz * side * w * 1.4;
-            dz += dx * side * w * 1.4;
-            const l = Math.hypot(dx, dz) || 1;
-            dx /= l;
-            dz /= l;
-          }
         }
-        const want = Math.atan2(dx, dz);
-        let diff = want - this.heading;
-        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-        this.heading += clamp(diff, -6 * dt, 6 * dt);
-        this.pos.x += Math.sin(this.heading) * speed * dt;
-        this.pos.z += Math.cos(this.heading) * speed * dt;
-        this.walkPhase += speed * dt * 14;
+        const dir = this.steer(dx, dz, obstacles, 0.35 + speed * 0.35);
+        if (this.state === 'FLEE') {
+          // Keep running the way that is actually open rather than back into a wall.
+          const k = Math.min(1, dt * 4);
+          this.fleeDir.set(this.fleeDir.x + (dir.x - this.fleeDir.x) * k, this.fleeDir.y + (dir.z - this.fleeDir.y) * k).normalize();
+        }
+        this.moveToward(dir.x, dir.z, speed, 7, dt);
         break;
       }
       case 'CHARGE': {
@@ -341,13 +436,9 @@ export abstract class Critter implements Grabbable {
         }
         dx /= dist;
         dz /= dist;
-        const want = Math.atan2(dx, dz);
-        let diff = want - this.heading;
-        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-        this.heading += clamp(diff, -10 * dt, 10 * dt);
-        this.pos.x += Math.sin(this.heading) * this.chargeSpeed * dt;
-        this.pos.z += Math.cos(this.heading) * this.chargeSpeed * dt;
-        this.walkPhase += this.chargeSpeed * dt * 14;
+        // Close in directly at the end; route around things on the way.
+        const dir = dist < 0.8 ? { x: dx, z: dz } : this.steer(dx, dz, obstacles, Math.min(dist, 0.5 + this.chargeSpeed * 0.25));
+        this.moveToward(dir.x, dir.z, this.chargeSpeed, 10, dt);
         break;
       }
       case 'FALLING': {
@@ -379,11 +470,11 @@ export abstract class Critter implements Grabbable {
         const ox = this.pos.x - ob.x;
         const oz = this.pos.z - ob.z;
         const d = Math.hypot(ox, oz);
-        if (d < ob.r && d > 1e-4) {
-          const push = ob.r - d;
+        const r = this.radiusOf(ob);
+        if (d < r && d > 1e-4) {
+          const push = r - d;
           this.pos.x += (ox / d) * push;
           this.pos.z += (oz / d) * push;
-          if (this.state === 'WANDER' && this.stateT > 0.5) this.pickTarget();
         }
       }
       if (this.inHoleZone(this.pos.x, this.pos.z, 0.35)) {

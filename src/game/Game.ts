@@ -27,7 +27,7 @@ import { LAYOUT } from './Layout';
 import { gateZones, levelGates, type LevelDef } from './Levels';
 import { createGate, type Gate, type GateEnv, type GoalCard } from './Gates';
 import { DEBUG_TOOLS, type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
-import { MONSTERS, MonsterPortrait, SLOTS, monsterName, pieceLabel, rollPiece, swatchCss, type MonsterBuild, type Slot } from './Monster';
+import { MONSTERS, MonsterPortrait, SLOTS, monsterName, newMonsterSeed, pieceLabel, rollPiece, swatchCss, type MonsterBuild, type Slot } from './Monster';
 import { composeCard, prepareCard, saveCard, shareCard, type PartChip } from '../ui/Share';
 import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle, windValue } from '../util/math';
 
@@ -274,7 +274,7 @@ export class Game {
       () => this.startRun(),
       saved > 0 ? {
         level: this.levelDefs[saved],
-        pieces: Object.keys(this.pieces).length,
+        pieces: SLOTS.filter((s) => this.pieces[s]).length,
         onResume: () => { this.prepare(saved, this.seed); this.startRun(); },
       } : undefined,
       (id: CampaignId) => switchCampaign(id),
@@ -454,7 +454,7 @@ export class Game {
   private startRun(): void {
     if (this.phase !== 'INTRO') return;
     // A new game starts a new monster; a resumed one keeps its pieces.
-    if (this.campaign.rewardsPieces && this.currentLevel === 0) this.pieces = {};
+    if (this.campaign.rewardsPieces && this.currentLevel === 0) this.pieces = { seed: newMonsterSeed() };
     this.booster = null;
     this.pendingBooster = null;
     this.startLevel();
@@ -471,7 +471,8 @@ export class Game {
     this.applyBooster();
     if (this.campaign.rewardsPieces) {
       // Fill any slots missing for islands already cleared (old saves, jumps).
-      SLOTS.slice(0, this.currentLevel).forEach((slot) => { this.pieces[slot] ??= rollPiece(Math.random); });
+      this.pieces.seed ??= newMonsterSeed();
+      SLOTS.slice(0, this.currentLevel).forEach((slot) => { this.pieces[slot] ??= rollPiece(Math.random, this.usedMonsters(slot)); });
       this.savePieces();
     }
     this.setPhase('PHASE_WEIGHT');
@@ -579,8 +580,15 @@ export class Game {
       const raw = JSON.parse(localStorage.getItem(this.campaign.progressKey + PIECES_SUFFIX) ?? '{}') as Record<string, string>;
       const out: MonsterBuild = {};
       for (const slot of SLOTS) if (raw[slot] && raw[slot] in MONSTERS) out[slot] = raw[slot] as keyof typeof MONSTERS;
+      const seed = Number(raw.seed);
+      if (Number.isFinite(seed) && seed > 0) out.seed = seed >>> 0;
       return out;
     } catch { return {}; }
+  }
+
+  /** Monsters already in the build, apart from `slot` (which is being rolled). */
+  private usedMonsters(slot: Slot) {
+    return SLOTS.filter((s) => s !== slot).map((s) => this.pieces[s]);
   }
 
   private savePieces(): void {
@@ -591,7 +599,7 @@ export class Game {
   private awardPiece(): PieceReward | undefined {
     if (!this.campaign.rewardsPieces) return undefined;
     const slot = SLOTS[Math.min(this.currentLevel, SLOTS.length - 1)];
-    const id = rollPiece(this.rng);
+    const id = rollPiece(Math.random, this.usedMonsters(slot));
     this.pieces[slot] = id;
     this.savePieces();
     this.portrait ??= new MonsterPortrait();
@@ -610,7 +618,7 @@ export class Game {
   }
 
   private showMonsterFinal(total: number, stars: number, best: number): void {
-    for (const slot of SLOTS) this.pieces[slot] ??= rollPiece(this.rng);
+    for (const slot of SLOTS) this.pieces[slot] ??= rollPiece(Math.random, this.usedMonsters(slot));
     this.savePieces();
     this.portrait ??= new MonsterPortrait();
     const defaultName = monsterName(this.pieces);
@@ -663,7 +671,13 @@ export class Game {
         const env = this.gateEnv(this.cur);
         for (const g of this.cur.gates) g.activate(env);
         this.refreshGoals();
-        this.hud.showGoals(false);
+        // Some gates are no riddle (the cauldron's recipe): those show their list straight away.
+        const open = this.cur.gates.find((g) => g.revealGoals);
+        this.hud.showGoals(Boolean(open));
+        if (open) {
+          this.hud.setBanner(open.instruction, this.cur.def.hint ?? '');
+          this.hud.openDrawer();
+        }
         break;
       }
       case 'HOLE_OPENING':
@@ -841,6 +855,7 @@ export class Game {
       claw: this.claw,
       sfx: this.sfx,
       decoyKinds: lv.decoyKinds,
+      icon: (kind) => this.icons[kind] || undefined,
       spawn: spawn ?? ((kind, x = 0, z = 0, y = 0.6) => {
         const c = new Collectible(kind, { x: o.x + x, y, z: o.z + z }, 0, this.phys, this.scene, false);
         lv.collectibles.push(c);
@@ -873,7 +888,8 @@ export class Game {
 
   /** The "open the hatch" list in the HUD. */
   private refreshGoals(): void {
-    const cards: GoalCard[] = this.cur.gates.flatMap((g) => g.goals());
+    const gates = this.gateHintShown ? this.cur.gates : this.cur.gates.filter((g) => g.revealGoals);
+    const cards: GoalCard[] = gates.flatMap((g) => g.goals());
     this.hud.setGoals(cards.map((c) => ({
       kind: c.key,
       name: c.kind && c.label === c.kind ? this.targetName(c.kind) : c.label,

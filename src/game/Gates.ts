@@ -12,7 +12,7 @@ import { RectRegion } from '../entities/Critter';
 import { Frankenstein } from '../entities/Frankenstein';
 import type { Claw } from '../entities/Claw';
 import type { Sfx } from '../audio/Sfx';
-import { boneMat, skullMesh } from '../scene/Bones';
+import { boneBetween, boneMat, skullMesh } from '../scene/Bones';
 import { damp } from '../util/math';
 
 /**
@@ -35,6 +35,8 @@ export interface GateEnv {
   toast: (text: string, cls?: string) => void;
   /** Non-target kinds that lie around this island (cauldron recipes use them). */
   decoyKinds: string[];
+  /** Picture of a kind (data URL), for in-world signs. */
+  icon: (kind: string) => string | undefined;
 }
 
 /** A line in the HUD's "open the hatch" list. */
@@ -44,6 +46,8 @@ const BEAM_Y = 0.38;
 
 export abstract class Gate {
   solved = false;
+  /** Its goal list is shown from the start (no puzzle in finding out what it wants). */
+  revealGoals = false;
   onSolved: (() => void) | null = null;
   /** Something visible changed in the goal list. */
   onGoalsChanged: (() => void) | null = null;
@@ -403,6 +407,11 @@ export class CauldronGate extends Gate {
   private pos: THREE.Vector3;
   private readonly R = 0.44;
   private readonly TOP = 0.62;
+  /** The recipe, floating over the pot as a speech bubble of ingredient pictures. */
+  private sign: THREE.Sprite;
+  private signCanvas = document.createElement('canvas');
+  private signTex: THREE.CanvasTexture;
+  private signIcons: (HTMLImageElement | null)[] = [];
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, spec: Extract<GateSpec, { kind: 'cauldron' }>) {
     super(scene, phys, level);
@@ -430,6 +439,72 @@ export class CauldronGate extends Gate {
     // Solid body; the sensor sits on the brew so anything dropped in is judged.
     this.staticCylinder(p.x, this.TOP / 2 - 0.02, p.z, this.TOP / 2 - 0.02, this.R);
     this.sensor = this.sensorCylinder(p.x, this.TOP + 0.22, p.z, 0.22, this.R - 0.04);
+    this.revealGoals = true;
+    this.signTex = new THREE.CanvasTexture(this.signCanvas);
+    this.signTex.colorSpace = THREE.SRGBColorSpace;
+    this.sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.signTex, transparent: true, toneMapped: false, fog: false }));
+    this.sign.renderOrder = 5;
+    this.sign.visible = false;
+    this.group.add(this.sign);
+  }
+
+  /** Redraw the recipe bubble: one picture per ingredient, ticked once it is in the pot. */
+  private drawSign(): void {
+    const n = this.recipe.length;
+    if (n === 0) { this.sign.visible = false; return; }
+    const cell = 112;
+    const pad = 22;
+    const w = pad * 2 + n * cell + (n - 1) * 10;
+    const h = cell + pad * 2 + 26;
+    const cv = this.signCanvas;
+    cv.width = w;
+    cv.height = h;
+    const g = cv.getContext('2d')!;
+    const bh = h - 26;
+    // Bubble with a little tail pointing down at the pot.
+    g.fillStyle = '#fbf6ff';
+    g.strokeStyle = '#3b2a4a';
+    g.lineWidth = 7;
+    g.beginPath();
+    g.roundRect(4, 4, w - 8, bh - 8, 34);
+    g.moveTo(w / 2 - 20, bh - 5);
+    g.lineTo(w / 2, h - 4);
+    g.lineTo(w / 2 + 20, bh - 5);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fbf6ff';
+    g.fillRect(w / 2 - 17, bh - 12, 34, 9);
+    this.recipe.forEach((kind, i) => {
+      const x = pad + i * (cell + 10);
+      const y = pad - 4;
+      const done = this.added.has(kind);
+      g.fillStyle = done ? '#d6f5df' : '#efe6ff';
+      g.beginPath();
+      g.roundRect(x, y, cell, cell, 22);
+      g.fill();
+      const img = this.signIcons[i];
+      g.globalAlpha = done ? 0.35 : 1;
+      if (img && img.complete && img.naturalWidth) g.drawImage(img, x + 6, y + 6, cell - 12, cell - 12);
+      g.globalAlpha = 1;
+      if (done) {
+        g.fillStyle = '#4caf6a';
+        g.beginPath();
+        g.arc(x + cell - 24, y + cell - 24, 22, 0, Math.PI * 2);
+        g.fill();
+        g.strokeStyle = '#fff';
+        g.lineWidth = 7;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(x + cell - 34, y + cell - 24);
+        g.lineTo(x + cell - 26, y + cell - 16);
+        g.lineTo(x + cell - 13, y + cell - 32);
+        g.stroke();
+      }
+    });
+    this.signTex.needsUpdate = true;
+    const height = 1.0;
+    this.sign.scale.set((height * w) / h, height, 1);
+    this.sign.visible = !this.solved;
   }
 
   get instruction(): string { return 'Brew the potion: drop in the ingredients'; }
@@ -446,12 +521,22 @@ export class CauldronGate extends Gate {
     }
     this.recipe = pool.slice(0, Math.min(3, pool.length));
     this.added.clear();
+    this.signIcons = this.recipe.map((k) => {
+      const src = env.icon(k);
+      if (!src) return null;
+      const img = new Image();
+      img.onload = () => this.drawSign();
+      img.src = src;
+      return img;
+    });
+    this.drawSign();
   }
 
   reset(): void {
     super.reset();
     this.added.clear();
     this.spitCooldown.clear();
+    this.drawSign();
   }
 
   poll(_dt: number, env: GateEnv): void {
@@ -466,6 +551,7 @@ export class CauldronGate extends Gate {
         env.sfx.tone(300, 0.25, 'sine', 0.14, 600);
         env.sfx.tone(500, 0.2, 'sine', 0.1, 900, 0.1);
         env.toast(`${c.def.name} in the pot!`, 'good');
+        this.drawSign();
         this.onGoalsChanged?.();
         if (this.added.size >= this.recipe.length) this.solve();
         return;
@@ -491,6 +577,16 @@ export class CauldronGate extends Gate {
       b.position.set(this.pos.x + Math.cos(a) * 0.22 * (i % 2 ? 1 : 0.5), this.TOP + ph * (this.solved ? 0.8 : 0.3), this.pos.z + Math.sin(a) * 0.22);
       b.scale.setScalar(1 - ph * 0.6);
     });
+    if (this.sign.visible) {
+      // Over the pot, nudged toward the middle of the island so it stays on screen.
+      const o = this.origin;
+      this.sign.position.set(this.pos.x + (o.x - this.pos.x) * 0.15, 1.8 + Math.sin(t * 1.8) * 0.05, this.pos.z + (o.z - this.pos.z) * 0.15);
+      if (this.solved) {
+        const k = Math.max(0, this.sign.material.opacity - dt * 2);
+        this.sign.material.opacity = k;
+        if (k === 0) this.sign.visible = false;
+      } else this.sign.material.opacity = 1;
+    }
     const target = this.solved ? 0xffcf4a : [0x8ff0c0, 0xb48cff, 0xff7fb0, 0xffcf4a][this.added.size] ?? 0x8ff0c0;
     this.brewMat.color.lerp(new THREE.Color(target), 1 - Math.exp(-dt * 3));
     this.brewMat.emissive.lerp(new THREE.Color(target).multiplyScalar(0.6), 1 - Math.exp(-dt * 3));
@@ -624,7 +720,14 @@ const BELL_NOTES = [523.25, 659.25, 783.99, 1046.5];
 export class BellsGate extends Gate {
   private seq: number[] = [];
   private progress = 0;
-  private stones: { pos: THREE.Vector3; plaque: THREE.MeshStandardMaterial; bell: THREE.Group }[] = [];
+  private stones: {
+    pos: THREE.Vector3;
+    gem: THREE.MeshStandardMaterial;
+    ring: THREE.MeshStandardMaterial;
+    bell: THREE.Group;
+    wave: THREE.Mesh;
+    waveMat: THREE.MeshStandardMaterial;
+  }[] = [];
   private flash: number[] = [0, 0, 0, 0];
   private show: { i: number; at: number }[] = [];
   private clock = 0;
@@ -632,26 +735,60 @@ export class BellsGate extends Gate {
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, spec: Extract<GateSpec, { kind: 'bells' }>) {
     super(scene, phys, level);
-    const stone = plastic(0xa9a3c4, { roughness: 0.85 });
-    const bronze = plastic(0xd9a441, { roughness: 0.3, metalness: 0.55 });
+    const stone = plastic(0xb3add0, { roughness: 0.85 });
+    const carved = plastic(0x8f88b0, { roughness: 0.9 });
+    const dirt = plastic(0x5a4a6e, { roughness: 0.95 });
+    const bronze = plastic(0xe0ad4a, { roughness: 0.28, metalness: 0.6 });
+    const bone = boneMat();
     const colours = [0xff7fb0, 0x8ff0c0, 0xffcf4a, 0xb48cff];
+    // A chunky toy bell: flared lip, rounded crown.
+    const bellGeo = new THREE.LatheGeometry([
+      [0.001, 0.0], [0.05, -0.005], [0.085, -0.04], [0.095, -0.1], [0.11, -0.16], [0.145, -0.2], [0.15, -0.215], [0.13, -0.215], [0.001, -0.2],
+    ].map(([x, y]) => new THREE.Vector2(x, y)), 28);
     for (let i = 0; i < 4; i++) {
       const o = (i - 1.5) * 0.72;
       const pos = spec.along === 'z' ? this.world(spec.x, spec.z + o) : this.world(spec.x + o, spec.z);
-      const h = 0.46 + (i % 2) * 0.06;
-      this.mesh(new RoundedBoxGeometry(0.4, h, 0.14, 3, 0.05), stone, pos.x, h / 2, pos.z);
-      const top = this.mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.14, 18, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2), stone, pos.x, h, pos.z);
-      top.castShadow = true;
-      const plaque = plastic(colours[i], { emissive: colours[i], emissiveIntensity: 0.15, roughness: 0.4 });
-      const p = this.mesh(new THREE.CircleGeometry(0.08, 20), plaque, pos.x, h * 0.55, pos.z + 0.072);
-      p.castShadow = false;
+      const g = new THREE.Group();
+      g.position.copy(pos);
+      g.rotation.z = (i % 2 ? 1 : -1) * 0.04;
+      this.group.add(g);
+      const col = colours[i];
+      // Grave mound and a glowing ring marking where to touch down.
+      this.mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.06, 24), dirt, 0, 0.03, 0, g);
+      const ring = glow(col, 0.35);
+      this.mesh(new THREE.TorusGeometry(0.34, 0.025, 8, 36), ring, 0, 0.05, 0, g).rotation.x = Math.PI / 2;
+      // Tombstone with a rounded top, a carved inset and a cross.
+      const h = 0.4 + (i % 2) * 0.05;
+      this.mesh(new RoundedBoxGeometry(0.38, h, 0.15, 3, 0.04), stone, 0, 0.06 + h / 2, 0, g);
+      this.mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.15, 24, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2), stone, 0, 0.06 + h, 0, g);
+      this.mesh(new RoundedBoxGeometry(0.28, h * 0.62, 0.02, 2, 0.008), carved, 0, 0.06 + h * 0.5, 0.075, g);
+      this.mesh(new THREE.BoxGeometry(0.035, 0.12, 0.02), carved, 0, 0.06 + h + 0.06, 0.076, g);
+      this.mesh(new THREE.BoxGeometry(0.09, 0.03, 0.02), carved, 0, 0.06 + h + 0.08, 0.076, g);
+      // Big glowing gem in the middle of the slab.
+      const gem = plastic(col, { emissive: col, emissiveIntensity: 0.25, roughness: 0.2 });
+      const gm = this.mesh(new THREE.OctahedronGeometry(0.075, 0), gem, 0, 0.06 + h * 0.5, 0.09, g);
+      gm.scale.set(1, 1.2, 0.5);
+      // Bone belfry over the stone; the bell hangs from its crossbar.
+      const top = 0.06 + h + 0.48;
+      for (const sx of [-1, 1]) g.add(boneBetween(new THREE.Vector3(sx * 0.24, 0.04, -0.03), new THREE.Vector3(sx * 0.21, top, -0.03), 0.03, bone));
+      g.add(boneBetween(new THREE.Vector3(-0.27, top, -0.03), new THREE.Vector3(0.27, top, -0.03), 0.03, bone));
       const bell = new THREE.Group();
-      bell.position.set(pos.x, h + 0.2, pos.z);
-      this.mesh(new THREE.SphereGeometry(0.1, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.6), bronze, 0, 0, 0, bell).scale.y = 1.2;
-      this.mesh(new THREE.SphereGeometry(0.03, 8, 6), bronze, 0, -0.1, 0, bell);
-      this.group.add(bell);
-      this.staticBox(pos.x, h / 2 + 0.1, pos.z, 0.2, h / 2 + 0.1, 0.1);
-      this.stones.push({ pos, plaque, bell });
+      bell.position.set(0, top - 0.02, 0.02);
+      this.mesh(new THREE.TorusGeometry(0.03, 0.01, 6, 12), bronze, 0, 0.005, 0, bell);
+      this.mesh(bellGeo, bronze, 0, -0.01, 0, bell);
+      this.mesh(new THREE.SphereGeometry(0.035, 10, 8), bronze, 0, -0.205, 0, bell);
+      this.mesh(new THREE.TorusGeometry(0.135, 0.012, 6, 28), glow(col, 0.5), 0, -0.185, 0, bell).rotation.x = Math.PI / 2;
+      g.add(bell);
+      // A ripple of sound that spreads from the bell when it rings.
+      const waveMat = glow(col, 1.2);
+      waveMat.transparent = true;
+      waveMat.opacity = 0;
+      const wave = this.mesh(new THREE.TorusGeometry(0.16, 0.012, 6, 32), waveMat, 0, top - 0.15, 0.02, g);
+      wave.castShadow = false;
+      wave.rotation.x = Math.PI / 2;
+      // Solid up to the crossbar, so the claw touches down on the belfry.
+      this.staticBox(pos.x, top / 2, pos.z, 0.22, top / 2 + 0.03, 0.1);
+      this.stones.push({ pos, gem, ring, bell, wave, waveMat });
     }
   }
 
@@ -694,7 +831,7 @@ export class BellsGate extends Gate {
 
   onClawBottom(x: number, z: number, env: GateEnv): void {
     if (this.solved) return;
-    const i = this.stones.findIndex((s) => Math.hypot(s.pos.x - x, s.pos.z - z) < 0.38);
+    const i = this.stones.findIndex((s) => Math.hypot(s.pos.x - x, s.pos.z - z) < 0.42);
     if (i < 0) return;
     this.ring(i, env.sfx);
     this.show = [];
@@ -724,8 +861,15 @@ export class BellsGate extends Gate {
   update(dt: number, t: number): void {
     this.stones.forEach((s, i) => {
       this.flash[i] = Math.max(0, this.flash[i] - dt * 1.6);
-      s.plaque.emissiveIntensity = (this.solved ? 1.0 : 0.15) + this.flash[i] * 2.2;
-      s.bell.rotation.z = Math.sin(t * 18) * 0.35 * this.flash[i];
+      const f = this.flash[i];
+      s.gem.emissiveIntensity = (this.solved ? 1.0 : 0.25) + f * 2.4;
+      s.ring.emissiveIntensity = (this.solved ? 0.9 : 0.35 + Math.sin(t * 2 + i) * 0.1) + f * 1.6;
+      s.bell.rotation.z = Math.sin(t * 16) * 0.45 * f;
+      s.bell.rotation.x = Math.cos(t * 13) * 0.15 * f;
+      // The ripple grows outward and fades as the ring dies down.
+      s.waveMat.opacity = f > 0 ? f * 0.9 : 0;
+      s.wave.visible = f > 0;
+      s.wave.scale.setScalar(1 + (1 - f) * 2.2);
     });
   }
 }

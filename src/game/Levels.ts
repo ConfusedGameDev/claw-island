@@ -270,7 +270,7 @@ export function gateZones(def: LevelDef): { x: number; z: number; r: number }[] 
       case 'laser': out.push({ x: g.x, z: g.z, r: 0.6 }, { x: g.emitter.x, z: g.emitter.z, r: 0.6 }); break;
       case 'key': out.push({ x: g.x, z: g.z, r: 0.7 }, { x: g.key.x, z: g.key.z, r: 0.5 }); break;
       case 'cauldron': out.push({ x: g.x, z: g.z, r: 0.8 }); break;
-      case 'scale': out.push({ x: g.x - 0.45, z: g.z, r: 0.6 }, { x: g.x + 0.45, z: g.z, r: 0.6 }); break;
+      case 'scale': out.push({ x: g.x - 0.68, z: g.z, r: 0.85 }, { x: g.x + 0.68, z: g.z, r: 0.85 }); break;
       case 'bells': for (let i = 0; i < 4; i++) {
         const o = (i - 1.5) * 0.72;
         out.push(g.along === 'z' ? { x: g.x, z: g.z + o, r: 0.45 } : { x: g.x + o, z: g.z, r: 0.45 });

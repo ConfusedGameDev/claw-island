@@ -91,15 +91,15 @@ export abstract class Gate {
   }
 
   /** A static box collider (floor group) in world space. */
-  protected staticBox(x: number, y: number, z: number, hx: number, hy: number, hz: number, rotY = 0): void {
+  protected staticBox(x: number, y: number, z: number, hx: number, hy: number, hz: number, rotY = 0): RAPIER.Collider {
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
     const body = this.phys.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }));
-    this.phys.world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setCollisionGroups(FLOOR_GROUPS).setFriction(0.9), body);
+    return this.phys.world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setCollisionGroups(FLOOR_GROUPS).setFriction(0.9), body);
   }
 
-  protected staticCylinder(x: number, y: number, z: number, hh: number, r: number): void {
+  protected staticCylinder(x: number, y: number, z: number, hh: number, r: number): RAPIER.Collider {
     const body = this.phys.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z));
-    this.phys.world.createCollider(RAPIER.ColliderDesc.cylinder(hh, r).setCollisionGroups(FLOOR_GROUPS).setFriction(0.9), body);
+    return this.phys.world.createCollider(RAPIER.ColliderDesc.cylinder(hh, r).setCollisionGroups(FLOOR_GROUPS).setFriction(0.9), body);
   }
 
   protected sensorCylinder(x: number, y: number, z: number, hh: number, r: number): RAPIER.Collider {
@@ -599,42 +599,59 @@ export class CauldronGate extends Gate {
 // ------------------------------------------------------------------- scale
 const GOURDS = ['gourd1', 'gourd2', 'gourd3'];
 
-/** Load the pan with pumpkins until it balances the counterweight's pips. */
+/** How much bigger the scale is than its original sculpt (room for a couple of big pumpkins). */
+const SCALE_SIZE = 1.5;
+
+/**
+ * Load the pan with two pumpkins whose pips add up to the counterweight's.
+ * Once balanced it has done its job: it vanishes in a puff of smoke and
+ * leaves the pumpkins behind.
+ */
 export class ScaleGate extends Gate {
   private target = 4;
   private load = 0;
   private stable = 0;
+  /** Everything visible of the scale, built at the original size and scaled up. */
+  private rig = new THREE.Group();
   private beam: THREE.Group;
   private pips: THREE.Mesh[] = [];
   private sensor: RAPIER.Collider;
+  private solids: RAPIER.Collider[] = [];
   private leftPan: THREE.Group;
   private rightPan: THREE.Group;
   private needleMat: THREE.MeshStandardMaterial;
   private pos: THREE.Vector3;
+  private sfx: Sfx | null = null;
+  /** Seconds until it goes poof (after being balanced); negative when not pending. */
+  private vanishT = -1;
+  private puffs: { m: THREE.Mesh; mat: THREE.MeshStandardMaterial; v: THREE.Vector3; life: number }[] = [];
 
   constructor(scene: THREE.Scene, phys: PhysicsWorld, level: LevelDef, spec: Extract<GateSpec, { kind: 'scale' }>) {
     super(scene, phys, level);
     this.pos = this.world(spec.x, spec.z);
     const p = this.pos;
+    const S = SCALE_SIZE;
+    this.rig.position.copy(p);
+    this.rig.scale.setScalar(S);
+    this.group.add(this.rig);
+    const r = this.rig;
     const wood = plastic(0x5a3f6e, { roughness: 0.7 });
     const brass = plastic(0xffcf4a, { roughness: 0.3, metalness: 0.5 });
-    this.mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.1, 16), wood, p.x, 0.05, p.z);
-    this.mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.8, 10), wood, p.x, 0.45, p.z);
+    this.mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.1, 16), wood, 0, 0.05, 0, r);
+    this.mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.8, 10), wood, 0, 0.45, 0, r);
     this.beam = new THREE.Group();
-    this.beam.position.set(p.x, 0.85, p.z);
+    this.beam.position.set(0, 0.85, 0);
     this.mesh(new THREE.BoxGeometry(1.0, 0.06, 0.08), brass, 0, 0, 0, this.beam);
     this.needleMat = glow(0xff5577, 0.6);
-    const needle = this.mesh(new THREE.ConeGeometry(0.035, 0.25, 8), this.needleMat, 0, 0.15, 0.05, this.beam);
-    needle.rotation.z = 0;
-    this.group.add(this.beam);
+    this.mesh(new THREE.ConeGeometry(0.035, 0.25, 8), this.needleMat, 0, 0.15, 0.05, this.beam);
+    r.add(this.beam);
     // Dial behind the needle: green zone in the middle.
-    const dial = this.mesh(new THREE.CircleGeometry(0.22, 24, 0, Math.PI), plastic(0xf6ecd4, { roughness: 0.6 }), p.x, 0.88, p.z - 0.02);
-    dial.rotation.z = 0;
-    this.mesh(new THREE.CircleGeometry(0.2, 12, Math.PI / 2 - 0.18, 0.36), plastic(0x6fbf5a), p.x, 0.881, p.z - 0.015);
+    this.mesh(new THREE.CircleGeometry(0.22, 24, 0, Math.PI), plastic(0xf6ecd4, { roughness: 0.6 }), 0, 0.88, -0.02, r);
+    this.mesh(new THREE.CircleGeometry(0.2, 12, Math.PI / 2 - 0.18, 0.36), plastic(0x6fbf5a), 0, 0.881, -0.015, r);
 
     const pan = (side: number) => {
       const g = new THREE.Group();
-      g.position.set(p.x + side * 0.45, 0.32, p.z);
+      g.position.set(side * 0.45, 0.32, 0);
       this.mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.05, 24), brass, 0, 0, 0, g);
       const rim = this.mesh(new THREE.TorusGeometry(0.33, 0.025, 8, 28), brass, 0, 0.03, 0, g);
       rim.rotation.x = Math.PI / 2;
@@ -642,37 +659,41 @@ export class ScaleGate extends Gate {
         const chain = this.mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.55, 4), plastic(0x8d93a8, { metalness: 0.6 }), sx * 0.2, 0.28, 0, g);
         chain.rotation.z = sx * 0.35;
       }
-      this.group.add(g);
+      r.add(g);
       return g;
     };
     this.leftPan = pan(-1);
     this.rightPan = pan(1);
     // Counterweight: an iron block with glowing pips showing its weight.
-    const block = this.mesh(new RoundedBoxGeometry(0.3, 0.24, 0.24, 3, 0.04), plastic(0x3a3346, { roughness: 0.4, metalness: 0.3 }), 0, 0.15, 0, this.leftPan);
-    block.castShadow = true;
+    this.mesh(new RoundedBoxGeometry(0.3, 0.24, 0.24, 3, 0.04), plastic(0x3a3346, { roughness: 0.4, metalness: 0.3 }), 0, 0.15, 0, this.leftPan);
     for (let i = 0; i < 6; i++) {
       const pip = this.mesh(new THREE.SphereGeometry(0.025, 8, 6), glow(0xffcf4a, 1.2), 0, 0.18, 0.125, this.leftPan);
       pip.scale.z = 0.4;
       this.pips.push(pip);
     }
-    // Colliders: base, left pan (with the block), right pan plus a low rim.
-    this.staticCylinder(p.x, 0.4, p.z, 0.4, 0.07);
-    this.staticCylinder(p.x - 0.45, 0.32, p.z, 0.04, 0.34);
-    this.staticBox(p.x - 0.45, 0.47, p.z, 0.15, 0.12, 0.12);
-    const rx = p.x + 0.45;
-    this.staticCylinder(rx, 0.32, p.z, 0.04, 0.34);
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2;
-      this.staticBox(rx + Math.cos(a) * 0.34, 0.4, p.z + Math.sin(a) * 0.34, 0.11, 0.05, 0.02, -a + Math.PI / 2);
+    // Colliders (world space, scaled to match): post, left pan with the block, right pan plus a low rim.
+    const lx = p.x - 0.45 * S;
+    const rx = p.x + 0.45 * S;
+    this.solids.push(
+      this.staticCylinder(p.x, 0.4 * S, p.z, 0.4 * S, 0.07 * S),
+      this.staticCylinder(lx, 0.32 * S, p.z, 0.04 * S, 0.34 * S),
+      this.staticBox(lx, 0.47 * S, p.z, 0.15 * S, 0.12 * S, 0.12 * S),
+      this.staticCylinder(rx, 0.32 * S, p.z, 0.04 * S, 0.34 * S),
+    );
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      this.solids.push(this.staticBox(rx + Math.cos(a) * 0.34 * S, 0.4 * S, p.z + Math.sin(a) * 0.34 * S, 0.1 * S, 0.05 * S, 0.02 * S, -a + Math.PI / 2));
     }
-    this.sensor = this.sensorCylinder(rx, 0.62, p.z, 0.26, 0.33);
+    this.sensor = this.sensorCylinder(rx, 0.62 * S, p.z, 0.26 * S, 0.33 * S);
   }
 
-  get instruction(): string { return 'Balance the scale with pumpkins'; }
-  goals(): GoalCard[] { return [{ key: 'scale', label: `Match ${this.target} pips`, kind: 'gourd2', done: this.solved }]; }
+  get instruction(): string { return 'Balance the scale with 2 pumpkins'; }
+  goals(): GoalCard[] { return [{ key: 'scale', label: `2 pumpkins, ${this.target} pips`, kind: 'gourd2', done: this.solved }]; }
 
   spawn(env: GateEnv): void {
-    this.target = 3 + Math.floor(env.rng() * 3); // 3..5, always reachable with two pumpkins
+    this.sfx = env.sfx;
+    // Pumpkins carry 1, 2 and 3 pips: 3..5 is always exactly two of them.
+    this.target = 3 + Math.floor(env.rng() * 3);
     this.pips.forEach((pip, i) => {
       pip.visible = i < this.target;
       pip.position.x = (i - (this.target - 1) / 2) * 0.05;
@@ -685,6 +706,12 @@ export class ScaleGate extends Gate {
     super.reset();
     this.stable = 0;
     this.load = 0;
+    this.vanishT = -1;
+    this.rig.visible = true;
+    for (const c of this.solids) c.setEnabled(true);
+    this.sensor.setEnabled(true);
+    for (const pf of this.puffs) this.group.remove(pf.m);
+    this.puffs = [];
   }
 
   poll(dt: number, env: GateEnv): void {
@@ -701,11 +728,54 @@ export class ScaleGate extends Gate {
     if (this.stable > 0.8) {
       env.sfx.tone(523, 0.15, 'triangle', 0.12);
       env.sfx.tone(784, 0.25, 'triangle', 0.12, undefined, 0.12);
+      this.vanishT = 1.0;
       this.solve();
     }
   }
 
+  /** Its job is done: a puff of smoke, and only the pumpkins are left. */
+  private poof(): void {
+    this.rig.visible = false;
+    for (const c of this.solids) c.setEnabled(false);
+    this.sensor.setEnabled(false);
+    this.sfx?.tone(220, 0.35, 'sine', 0.12, 90);
+    this.sfx?.tone(900, 0.2, 'triangle', 0.05, 300, 0.05);
+    const S = SCALE_SIZE;
+    for (let i = 0; i < 22; i++) {
+      const mat = plastic(i % 3 ? 0xe9e2f5 : 0xc9b8ea, { roughness: 0.9 }).clone();
+      mat.transparent = true;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.12 + (i % 4) * 0.04, 10, 8), mat);
+      const a = (i / 22) * Math.PI * 2 + Math.random() * 0.4;
+      const along = (Math.random() * 2 - 1) * 0.55 * S;
+      m.position.set(this.pos.x + along, 0.25 + Math.random() * 0.7 * S, this.pos.z + Math.sin(a) * 0.25);
+      m.castShadow = false;
+      this.group.add(m);
+      this.puffs.push({ m, mat, v: new THREE.Vector3(Math.cos(a) * 0.9, 0.5 + Math.random() * 0.6, Math.sin(a) * 0.9), life: 0 });
+    }
+  }
+
   update(dt: number): void {
+    if (this.vanishT > 0) {
+      this.vanishT -= dt;
+      if (this.vanishT <= 0) { this.vanishT = -1; this.poof(); }
+    }
+    if (this.puffs.length) {
+      for (const pf of this.puffs) {
+        pf.life += dt;
+        pf.m.position.addScaledVector(pf.v, dt);
+        pf.v.multiplyScalar(1 - Math.min(1, dt * 2.5));
+        pf.m.scale.setScalar(1 + pf.life * 2.2);
+        pf.mat.opacity = Math.max(0, 1 - pf.life / 0.9);
+      }
+      this.puffs = this.puffs.filter((pf) => {
+        if (pf.life < 0.9) return true;
+        this.group.remove(pf.m);
+        pf.m.geometry.dispose();
+        pf.mat.dispose();
+        return false;
+      });
+    }
+    if (!this.rig.visible) return;
     const diff = this.solved ? 0 : this.load - this.target;
     const tilt = Math.max(-0.28, Math.min(0.28, diff * 0.09));
     this.beam.rotation.z = damp(this.beam.rotation.z, -tilt, 5, dt);

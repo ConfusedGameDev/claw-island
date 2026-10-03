@@ -14,6 +14,8 @@ export interface BatFlightEnv {
   descending: boolean;
   /** The island's gravity multiplier, restored whenever the bat stops flying. */
   gravity: number;
+  /** The hatch is open: a bat that ends up over it drops in (and counts). */
+  holeOpen: boolean;
 }
 
 const HOVER_Y = 0.3;
@@ -72,6 +74,12 @@ export class BatFlight {
       return;
     }
     if (!inPen) { this.land(env); return; }
+    if (env.holeOpen && this.nearHole(lx, lz, -0.05)) {
+      // Knocked or shoved over the open hatch: stop flapping and drop in.
+      this.land(env);
+      b.body.setLinvel({ x: 0, y: -1, z: 0 }, true);
+      return;
+    }
 
     const clawNear = env.descending && Math.hypot(p.x - env.clawPos.x, p.z - env.clawPos.z) < 0.7;
     let vx = 0;

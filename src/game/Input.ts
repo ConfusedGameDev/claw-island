@@ -31,6 +31,9 @@ export class Input {
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
     window.addEventListener('pointerdown', () => this.gesture(), { passive: true });
+    // iOS only treats touchend/click as the gesture that may start audio.
+    window.addEventListener('touchend', () => this.gesture(), { passive: true });
+    window.addEventListener('click', () => this.gesture(), { passive: true });
   }
 
   private gesture(): void {

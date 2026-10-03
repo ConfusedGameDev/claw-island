@@ -213,8 +213,13 @@ export class Music {
 
   // ---------------------------------------------------------- internals
   private ensureNodes(): boolean {
-    if (this.nodes) return true;
     const c = this.sfx.context();
+    // The game replaced its audio context (iOS after the background): rebuild the music graph on it.
+    if (this.nodes && c && this.nodes.ctx !== c.ctx) {
+      this.nodes = null;
+      this.nextTime = c.ctx.currentTime + 0.1;
+    }
+    if (this.nodes) return true;
     if (!c) return false;
     const { ctx, master } = c;
     const input = ctx.createGain();
@@ -258,8 +263,8 @@ export class Music {
   }
 
   private tick(): void {
-    if (!this.nodes) return;
-    const { ctx } = this.nodes;
+    if (!this.ensureNodes()) return;
+    const { ctx } = this.nodes!;
     this.applyLevel(0.3);
     if (!this.playing) return;
     // Throttled background tabs: skip ahead instead of bursting old notes.

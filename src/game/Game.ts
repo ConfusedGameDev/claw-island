@@ -1006,12 +1006,12 @@ export class Game {
       for (const c of lv.collectibles) {
         if (c.removed || c.held) continue;
         const p = c.body.translation();
-        if (p.y < 0.6) obstacles.push({ x: p.x, z: p.z, r: 0.45 });
+        if (p.y < 0.6) obstacles.push({ x: p.x, z: p.z, r: 0.45, soft: c.def.mass < 2 });
       }
       const n = obstacles.length;
       for (const ch of lv.critters) {
         obstacles.length = n;
-        for (const o of lv.critters) if (o !== ch && !o.removed && !o.held) obstacles.push({ x: o.position.x, z: o.position.z, r: 0.4 });
+        for (const o of lv.critters) if (o !== ch && !o.removed && !o.held) obstacles.push({ x: o.position.x, z: o.position.z, r: 0.4, soft: true });
         ch.step(dt, obstacles, this.claw.pos, descending && lv === this.cur, lv.hole.isOpen);
       }
     }

@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PAL } from './Materials';
+import { LAYOUT } from '../game/Layout';
+import { damp } from '../util/math';
 
 interface Cloud { group: THREE.Group; speed: number; baseY: number; phase: number }
-interface Bat { group: THREE.Group; wings: THREE.Mesh[]; cx: number; cy: number; cz: number; r: number; speed: number; phase: number }
+/** A bat lapping the pen: an ellipse just outside the fence, with its own pace, height and swoop. */
+interface Bat { group: THREE.Group; wings: THREE.Mesh[]; rx: number; rz: number; y: number; speed: number; phase: number; angle: number }
 
 /** Lights and sky decoration shared by every island. */
 export class Environment {
@@ -15,6 +18,8 @@ export class Environment {
   private bats: Bat[] = [];
   private moon: THREE.Group | null = null;
   private focusPoint = new THREE.Vector3();
+  /** Where the bats are circling; trails the focus so they follow the ride to the next island. */
+  private batCenter = new THREE.Vector3();
   private hemi: THREE.HemisphereLight;
   private fill: THREE.DirectionalLight;
   private base = { sun: 2.1, key: 0.9, hemi: 0.6, fill: 0.35 };
@@ -53,6 +58,8 @@ export class Environment {
   /** Center the lights (and the shadow map) on the active island. */
   focus(origin: { x: number; z: number }): void {
     this.focusPoint.set(origin.x, 0, origin.z);
+    // Jumping straight to a far island (a load, a restart): the bats are already there.
+    if (this.batCenter.distanceTo(this.focusPoint) > 20) this.batCenter.copy(this.focusPoint);
     // A hair off vertical keeps the look-at matrix well defined.
     this.sun.position.set(origin.x, 14, origin.z + 0.05);
     this.sun.target.position.copy(this.focusPoint);
@@ -84,10 +91,23 @@ export class Environment {
       if (Math.abs(c.group.position.x) > 13) c.group.position.x = Math.sign(c.group.position.x) * 8;
       c.group.position.y = c.baseY + Math.sin(t * 0.6 + c.phase) * 0.12;
     }
+    this.batCenter.x = damp(this.batCenter.x, this.focusPoint.x, 1.5, dt);
+    this.batCenter.z = damp(this.batCenter.z, this.focusPoint.z, 1.5, dt);
     for (const b of this.bats) {
-      const a = t * b.speed + b.phase;
-      b.group.position.set(b.cx + Math.cos(a) * b.r, b.cy + Math.sin(a * 2.3) * 0.3, b.cz + Math.sin(a) * b.r * 0.6);
-      b.group.rotation.y = -a + (b.speed > 0 ? 0 : Math.PI);
+      b.angle += b.speed * dt;
+      const a = b.angle;
+      // Swoop in and out and up and down a little as they go round.
+      const wob = 1 + Math.sin(a * 3 + b.phase) * 0.06;
+      const rx = b.rx * wob;
+      const rz = b.rz * wob;
+      b.group.position.set(
+        this.batCenter.x + Math.cos(a) * rx,
+        b.y + Math.sin(a * 2.3 + b.phase) * 0.25,
+        this.batCenter.z + Math.sin(a) * rz,
+      );
+      // Face along the lap and bank into the turn.
+      const dir = Math.sign(b.speed);
+      b.group.rotation.set(0, Math.atan2(-Math.sin(a) * rx * dir, Math.cos(a) * rz * dir), dir * 0.35, 'YXZ');
       const flap = Math.sin(t * 14 + b.phase * 3) * 0.7;
       b.wings[0].rotation.z = flap;
       b.wings[1].rotation.z = -flap;
@@ -133,9 +153,13 @@ export class Environment {
     const wingGeo = new THREE.ShapeGeometry(wing);
     wingGeo.rotateX(-Math.PI / 2);
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffd23f });
-    for (let i = 0; i < 26; i++) {
+    const { FENCE } = LAYOUT;
+    const BATS = 10;
+    const bodyGeo = new THREE.SphereGeometry(0.12, 10, 8);
+    const eyeGeo = new THREE.SphereGeometry(0.025, 6, 4);
+    for (let i = 0; i < BATS; i++) {
       const g = new THREE.Group();
-      g.add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), body));
+      g.add(new THREE.Mesh(bodyGeo, body));
       const wings: THREE.Mesh[] = [];
       for (const s of [-1, 1]) {
         const w = new THREE.Mesh(wingGeo, wingMat);
@@ -143,16 +167,21 @@ export class Environment {
         w.position.x = s * 0.06;
         g.add(w);
         wings.push(w);
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), eyeMat);
+        const eye = new THREE.Mesh(eyeGeo, eyeMat);
         eye.position.set(s * 0.05, 0.04, 0.1);
         g.add(eye);
       }
-      const side = i % 2 === 0 ? -1 : 1;
+      g.scale.setScalar(0.8 + (i % 3) * 0.12);
       this.scene.add(g);
+      // Most go round one way as a loose flock; every fourth one laps the other way.
+      const ring = (i % 3) * 0.35;
       this.bats.push({
         group: g, wings,
-        cx: side * (7 + (i * 1.7) % 2.5), cy: -0.5 + ((i * 1.3) % 2.5), cz: 3 - i * 4.4,
-        r: 0.8 + (i % 3) * 0.5, speed: (i % 2 ? 1 : -1) * (0.6 + (i % 4) * 0.15), phase: i * 1.7,
+        rx: FENCE.hx + 0.6 + ring, rz: FENCE.hz + 0.5 + ring,
+        y: FENCE.wallHeight + 0.4 + ((i * 0.37) % 1) * 0.9,
+        speed: (i % 4 === 3 ? -1 : 1) * (0.45 + ((i * 0.29) % 1) * 0.3),
+        phase: i * 1.7,
+        angle: (i / BATS) * Math.PI * 2,
       });
     }
   }

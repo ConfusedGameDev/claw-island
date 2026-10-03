@@ -228,6 +228,9 @@ export const KINDS: Record<string, KindDef> = { ...BASE_KINDS, ...EXTRA_KINDS, .
 /** Every kind that can show up as a pickup or target (tools and the weight excluded). */
 export const PICKUP_KINDS: string[] = Object.keys(KINDS).filter((k) => k !== 'weight' && k !== 'magnet');
 
+/** Gate tools: never treasures, never penalised, and they come back if lost. */
+export const GATE_TOOL_KINDS = new Set(['weight', 'magnet', 'mirror', 'gatekey', 'gourd1', 'gourd2', 'gourd3']);
+
 // -------------------------------------------------------------- instances
 export class Collectible implements Grabbable {
   readonly def: KindDef;

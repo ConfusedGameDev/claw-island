@@ -548,3 +548,70 @@ body.halloween .mini-stars i { color: #c9b8e6; }
   flex: none;
 }
 .parts span { display: inline-flex; align-items: center; }
+
+/* ---------- keyboard vs touch hints ---------- */
+.touch-only { display: none; }
+@media (pointer: coarse) {
+  .kbd-only { display: none !important; }
+  .touch-only { display: inline; }
+  div.touch-only, .keys.touch-only { display: flex; }
+  .hint:has(.kbd-only:only-child), .hint:empty { display: none; }
+}
+.keys.touch-only b { color: var(--ink); }
+
+/* ---------- gate goals ---------- */
+.targets.goals .card-name { max-width: 170px; }
+
+/* ---------- boosters ---------- */
+.booster-pill { background: #ffcf4a; white-space: nowrap; }
+.hud-stats .pill { white-space: nowrap; }
+.hud-stats { flex-wrap: wrap; }
+.booster-pill .ico .icon { width: 22px; height: 22px; }
+.boost-row b { color: var(--accent); }
+.boost-row span { display: inline-flex; align-items: center; gap: 6px; }
+.panel.booster { width: min(92vw, 400px); }
+.pack-stage { display: grid; place-items: center; min-height: 260px; margin: 6px 0 10px; }
+.pack {
+  position: relative;
+  width: 170px;
+  height: 236px;
+  border: 4px solid var(--ink);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 35%, rgba(255,255,255,0.35) 55%, rgba(255,255,255,0) 70%),
+    linear-gradient(160deg, #b48cff, #ff8a3c 60%, #ffcf4a);
+  background-size: 250% 250%, 100% 100%;
+  box-shadow: 0 8px 0 var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  animation: packWiggle 1.6s ease-in-out infinite, foil 3s linear infinite;
+  overflow: hidden;
+}
+.pack-top {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 34px;
+  background: repeating-linear-gradient(90deg, #2a2230 0 8px, #3a2a4f 8px 16px);
+  border-bottom: 3px dashed #fff7e6;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pack-face { position: absolute; inset: 40px 0 0; display: grid; place-items: center; align-content: center; gap: 4px; color: #2a2230; }
+.pack-face .icon { width: 64px; height: 64px; }
+.pack-face b { font-size: 22px; line-height: 1.05; letter-spacing: 1px; color: #fff7e6; text-shadow: 2px 2px 0 #2a2230; }
+.pack.torn { animation: none; transform: scale(1.06) rotate(-3deg); }
+.pack.torn .pack-top { transform: translate(40px, -60px) rotate(25deg); }
+.boost-card {
+  width: 200px;
+  padding: 18px 14px;
+  border: 4px solid var(--ink);
+  border-radius: 18px;
+  background: #fff7e6;
+  box-shadow: 0 8px 0 var(--ink);
+  animation: cardFlip 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.boost-icon .icon { width: 88px; height: 88px; }
+.boost-name { font-size: 24px; font-weight: 700; color: var(--accent); margin: 6px 0 4px; }
+.boost-desc { font-size: 14px; color: var(--ink-soft); }
+@keyframes packWiggle { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg) translateY(-4px); } }
+@keyframes foil { from { background-position: 0% 0%, 0 0; } to { background-position: 250% 250%, 0 0; } }
+@keyframes cardFlip { 0% { transform: scale(0.75) rotate(-6deg); } 60% { transform: scale(1.08) rotate(2deg); } 100% { transform: scale(1) rotate(0); } }

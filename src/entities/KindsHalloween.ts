@@ -145,4 +145,66 @@ export const SPOOKY_KINDS: Record<string, KindDef> = {
     },
     collider: () => RAPIER.ColliderDesc.cylinder(0.14, 0.15),
   },
+  // ----------------------------------------------------------- gate tools
+  mirror: {
+    // A standing hand mirror on a heavy foot. Its reflecting face is local +Z.
+    name: 'Mirror', mass: 0.8, grip: 0.75, top: 0.3, bottom: 0.2,
+    buildMesh() {
+      const bone = plastic(0xf6ecd4, { roughness: 0.55 });
+      const foot = mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.06, 20), plastic(0x3a2a4f, { roughness: 0.5 }), 0, -0.17, 0);
+      const stem = mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.12, 10), bone, 0, -0.1, 0);
+      const frame = mesh(new THREE.TorusGeometry(0.16, 0.03, 10, 32), bone, 0, 0.1, 0);
+      frame.scale.set(1, 1.2, 1);
+      const glass = mesh(new THREE.CircleGeometry(0.155, 32), plastic(0xdff4ff, { roughness: 0.05, metalness: 0.9 }), 0, 0.1, 0.012);
+      glass.scale.y = 1.2;
+      const back = mesh(new THREE.CircleGeometry(0.16, 32), plastic(0x5e3a8f, { roughness: 0.6 }), 0, 0.1, -0.012);
+      back.scale.y = 1.2;
+      back.rotation.y = Math.PI;
+      const shine = mesh(new THREE.PlaneGeometry(0.03, 0.16), plastic(0xffffff, { roughness: 0.1, transparent: true, opacity: 0.7 }), -0.05, 0.14, 0.016);
+      shine.rotation.z = -0.5;
+      return group(foot, stem, frame, glass, back, shine);
+    },
+    collider: () => RAPIER.ColliderDesc.cuboid(0.18, 0.25, 0.09).setTranslation(0, -0.04, 0),
+  },
+  gatekey: {
+    name: 'Gate Key', mass: 0.4, grip: 0.7, top: 0.06, bottom: 0.06,
+    buildMesh() {
+      const gold = plastic(0xffcf4a, { roughness: 0.28, metalness: 0.55 });
+      const bow = mesh(new THREE.TorusGeometry(0.08, 0.028, 10, 24), gold, -0.16, 0, 0);
+      bow.rotation.x = Math.PI / 2;
+      const gem = mesh(new THREE.SphereGeometry(0.035, 12, 10), glow(0x7fe0b0, 0.9), -0.16, 0, 0);
+      const shaft = mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.26, 10), gold, 0.02, 0, 0);
+      shaft.rotation.z = Math.PI / 2;
+      const g = group(bow, gem, shaft);
+      for (const [x, h] of [[0.1, 0.07], [0.14, 0.05]] as const) g.add(mesh(new THREE.BoxGeometry(0.03, 0.02, h), gold, x, 0, h / 2));
+      return g;
+    },
+    collider: () => RAPIER.ColliderDesc.cuboid(0.25, 0.04, 0.1),
+  },
+  // Pumpkins for the scale: 1, 2 and 3 carved pips, and as many units of mass.
+  ...Object.fromEntries([1, 2, 3].map((n) => [`gourd${n}`, {
+    name: ['Small', 'Medium', 'Big'][n - 1] + ' Pumpkin', mass: n, grip: 0.65 + n * 0.03,
+    top: 0.08 + n * 0.035, bottom: 0.08 + n * 0.035,
+    buildMesh() {
+      const r = 0.08 + n * 0.035;
+      const orange = plastic([0xffb15a, 0xf28a35, 0xd96a1e][n - 1], { roughness: 0.5 });
+      const g = new THREE.Group();
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const lobe = mesh(new THREE.SphereGeometry(r * 0.62, 14, 10), orange, Math.cos(a) * r * 0.42, 0, Math.sin(a) * r * 0.42);
+        lobe.scale.y = 1.15;
+        g.add(lobe);
+      }
+      g.add(mesh(new THREE.CylinderGeometry(r * 0.1, r * 0.14, r * 0.45, 8), plastic(0x4e7a3a, { roughness: 0.7 }), 0, r * 0.95, 0));
+      // Carved weight pips on the front, so the scale is a little sum.
+      for (let i = 0; i < n; i++) {
+        const x = (i - (n - 1) / 2) * r * 0.42;
+        const pip = mesh(new THREE.SphereGeometry(r * 0.13, 10, 8), glow(0xffcf4a, 1.1), x, r * 0.05, r * 0.86);
+        pip.scale.z = 0.4;
+        g.add(pip);
+      }
+      return g;
+    },
+    collider: () => RAPIER.ColliderDesc.ball(0.08 + n * 0.035),
+  } satisfies KindDef])),
 };

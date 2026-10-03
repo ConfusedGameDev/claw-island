@@ -55,6 +55,17 @@ export interface MonsterFinal {
 
 export interface TargetCard { kind: string; name: string; icon: string; isImage: boolean }
 
+/** A hint line that reads right for both keyboards and touch screens. */
+const hint = (kbd: string, touch: string): HTMLElement => {
+  const h = document.createElement('div');
+  h.className = 'hint';
+  h.innerHTML = `<span class="kbd-only">${kbd}</span>${touch ? `<span class="touch-only">${touch}</span>` : ''}`;
+  return h;
+};
+
+/** A power-up from a booster pack. */
+export interface BoosterCard { id: string; name: string; desc: string; icon: string }
+
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -73,6 +84,9 @@ export class Hud {
   private bannerEl: HTMLElement;
   private bannerSub: HTMLElement;
   private targetsEl: HTMLElement;
+  private goalsEl: HTMLElement;
+  private boosterEl: HTMLElement;
+  private boosterAdvance: (() => void) | null = null;
   private toastHost: HTMLElement;
   private cards = new Map<string, HTMLElement>();
   private lastTimer = '';
@@ -89,13 +103,15 @@ export class Hud {
     this.pauseBtn = el('button', 'pill pause-btn hidden', ICONS.pause);
     this.pauseBtn.setAttribute('aria-label', 'Pause');
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); this.onPause?.(); });
-    stats.append(this.levelEl, this.timerEl, this.attemptsEl, this.pauseBtn);
+    this.boosterEl = el('div', 'pill booster-pill hidden');
+    stats.append(this.levelEl, this.timerEl, this.attemptsEl, this.boosterEl, this.pauseBtn);
     const banner = el('div', 'banner');
     this.bannerEl = el('div', 'banner-title');
     this.bannerSub = el('div', 'banner-sub');
     banner.append(this.bannerEl, this.bannerSub);
     this.targetsEl = el('div', 'targets hidden');
-    top.append(stats, banner, this.targetsEl);
+    this.goalsEl = el('div', 'targets goals hidden');
+    top.append(stats, banner, this.targetsEl, this.goalsEl);
     this.toastHost = el('div', 'toasts');
     this.hud.append(top, this.toastHost);
 
@@ -172,6 +188,79 @@ export class Hud {
     }
   }
 
+  /** The "open the hatch" checklist shown while the hatch is shut. */
+  setGoals(cards: (TargetCard & { done: boolean })[]): void {
+    this.goalsEl.innerHTML = '<div class="targets-title">Open the hatch</div>';
+    for (const c of cards) {
+      const card = el('div', `card${c.done ? ' done' : ''}`);
+      const icon = c.isImage ? `<img src="${c.icon}" alt="${c.name}" />` : `<span class="card-fallback">${ICONS.token}</span>`;
+      card.innerHTML = `<div class="card-icon">${icon}<div class="check">✓</div></div><div class="card-name">${c.name}</div>`;
+      this.goalsEl.append(card);
+    }
+  }
+
+  showGoals(visible: boolean): void {
+    this.goalsEl.classList.toggle('hidden', !visible);
+  }
+
+  /** The active booster, shown as a pill next to the timer. */
+  setBooster(b: { icon: string; label: string } | null): void {
+    this.boosterEl.classList.toggle('hidden', !b);
+    if (b) this.boosterEl.innerHTML = `<span class="ico">${b.icon}</span><span class="val">${b.label}</span>`;
+  }
+
+  /** Enter / drop on the booster screen: open the pack, then continue. Returns false if no booster screen is up. */
+  advanceBooster(): boolean {
+    if (!this.boosterAdvance) return false;
+    this.boosterAdvance();
+    return true;
+  }
+
+  /** The booster pack after an island: tap to tear it open, then ride on. */
+  showBooster(card: BoosterCard, onOpen: () => void, onDone: () => void): void {
+    this.overlay.classList.remove('hidden');
+    this.overlay.innerHTML = '';
+    const panel = el('div', 'panel booster');
+    panel.addEventListener('pointerdown', (e) => e.stopPropagation());
+    panel.innerHTML = '<div class="title">Booster pack!</div><div class="subtitle">a power-up for the next island</div>';
+    const stage = el('div', 'pack-stage');
+    const pack = el('button', 'pack', `<span class="pack-top"></span><span class="pack-face">${ICONS.bat}<b>SPOOKY<br/>BOOST</b></span>`);
+    pack.setAttribute('aria-label', 'Open the booster pack');
+    const reveal = el('div', 'boost-card hidden', `<div class="boost-icon">${card.icon}</div><div class="boost-name">${card.name}</div><div class="boost-desc">${card.desc}</div>`);
+    stage.append(pack, reveal);
+    panel.append(stage);
+    const btns = el('div', 'btns');
+    const go = el('button', 'big-btn hidden', withIcon('play', 'Ride on'));
+    btns.append(go);
+    panel.append(btns);
+    const h = hint('Enter · open the pack', 'tap the pack to open it');
+    panel.append(h);
+    let opened = false;
+    const open = () => {
+      if (opened) return;
+      opened = true;
+      pack.classList.add('torn');
+      onOpen();
+      setTimeout(() => {
+        pack.classList.add('hidden');
+        reveal.classList.remove('hidden');
+        go.classList.remove('hidden');
+        h.innerHTML = '<span class="kbd-only">Enter · ride to the next island</span>';
+      }, 450);
+    };
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      this.boosterAdvance = null;
+      onDone();
+    };
+    pack.addEventListener('click', open);
+    go.addEventListener('click', finish);
+    this.boosterAdvance = () => { if (!opened) open(); else if (!go.classList.contains('hidden')) finish(); };
+    this.overlay.append(panel);
+  }
+
   showTargets(visible: boolean): void {
     this.targetsEl.classList.toggle('hidden', !visible);
   }
@@ -221,9 +310,13 @@ export class Hud {
     ? '<li><b>3.</b> Clear an island to win a <b>body piece</b> from a random monster. Ten pieces make your own <b>Frankenstein</b>.</li>'
     : '<li><b>3.</b> Grab things dead centre. A sloppy grip wobbles, then slips.</li>'}
       </ol>
-      <div class="keys">
+      <div class="keys kbd-only">
         <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>←</kbd><kbd>→</kbd> rotate</span>
         <span><kbd>Space</kbd> drop · drop again to release</span>
+      </div>
+      <div class="keys touch-only">
+        <span><b>Pad</b> moves the crane &nbsp; <b>↺ ↻</b> turn the claw</span>
+        <span><b>DROP</b> grabs · tap DROP again to let go</span>
       </div>
     `;
     card.append(body);
@@ -238,7 +331,7 @@ export class Hud {
       btns.append(r);
     }
     card.append(btns);
-    card.append(el('div', 'hint', resume ? 'press any key for a new game' : 'press any key or tap to start'));
+    card.append(hint(resume ? 'press any key for a new game' : 'press any key or tap to start', resume ? 'tap a button to play' : 'tap Start to play'));
     this.overlay.append(card);
   }
 
@@ -289,7 +382,7 @@ export class Hud {
       grid.append(b);
     }
     card.append(grid);
-    card.append(el('div', 'hint', 'Esc · resume'));
+    card.append(hint('Esc · resume', ''));
     this.overlay.append(card);
   }
 
@@ -335,6 +428,7 @@ export class Hud {
       <div class="row"><span>Time bonus</span><b>+${b.timeBonus}</b></div>
       <div class="row"><span>Precision bonus</span><b>+${b.attemptBonus}</b></div>
       <div class="row"><span>Penalty</span><b>-${b.decoyPenalty}</b></div>
+      ${b.multiplier > 1 ? `<div class="row boost-row"><span>${ICONS.x2} Double points</span><b>×${b.multiplier}</b></div>` : ''}
       <div class="row total"><span>Score</span><b class="total-val">0</b></div>
     `;
     card.append(rows);
@@ -343,7 +437,7 @@ export class Hud {
     cont.addEventListener('click', onContinue);
     btns.append(cont);
     card.append(btns);
-    card.append(el('div', 'hint', isLast ? (piece ? 'Enter · bring your monster to life' : 'Enter · final score') : 'Enter · ride to the next island'));
+    card.append(hint(isLast ? (piece ? 'Enter · bring your monster to life' : 'Enter · final score') : 'Enter · continue', ''));
     this.overlay.append(card);
     this.countUp(rows.querySelector<HTMLElement>('.total-val')!, b.total);
   }
@@ -372,7 +466,7 @@ export class Hud {
     replay.addEventListener('click', onReplay);
     btns.append(replay);
     card.append(btns);
-    card.append(el('div', 'hint', 'Enter · play again'));
+    card.append(hint('Enter · play again', ''));
     this.overlay.append(card);
     this.countUp(rows.querySelector<HTMLElement>('.total-val')!, total, 700);
   }

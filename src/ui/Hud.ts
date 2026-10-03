@@ -128,6 +128,7 @@ export class Hud {
       for (const d of [this.targetsEl, this.goalsEl]) d.classList.toggle('collapsed', collapsed);
     };
     applyDrawer();
+    this.openDrawer = () => { collapsed = false; applyDrawer(); };
     for (const d of [this.targetsEl, this.goalsEl]) {
       d.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -222,6 +223,9 @@ export class Hud {
       this.goalsEl.append(card);
     }
   }
+
+  /** Pull the side drawer out (without changing the player's saved preference). */
+  openDrawer: () => void = () => {};
 
   showGoals(visible: boolean): void {
     this.goalsEl.classList.toggle('hidden', !visible);

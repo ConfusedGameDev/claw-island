@@ -137,7 +137,7 @@ const SPECS: LevelSpec[] = [
     hint: 'The belt feeds the hatch.', collectHint: 'pull the junk off the belt before it falls in',
   },
   {
-    name: 'Mummy Tomb', theme: T.tomb, pool: TOMB, targets: 3, decoys: 13, critter: 'none', critters: 0, gates: [{ kind: 'laser', x: 2.5, z: 1.9, emitter: { x: -3.7, z: -2.1, dir: 0 }, mirrors: 1 }],
+    name: 'Mummy Tomb', theme: T.tomb, pool: TOMB, targets: 3, decoys: 13, critter: 'none', critters: 0,
     gripScale: 1.0,
     button: { x: -2.6, z: -1.8 }, weight: { x: 2.4, z: 1.9 }, wind: 0.9, hint: 'A cursed sandstorm pushes the crane.',
   },

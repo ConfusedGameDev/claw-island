@@ -35,16 +35,17 @@ A kawaii-horror take on the same ten-island run:
 **Opening the hatch.** Each island guards its hatch in its own way; a few
 later ones combine two. Working it out is part of the puzzle: the
 instruction and the "Open the hatch" checklist only appear if the hatch is
-still shut after 30 seconds of play.
+still shut after 30 seconds of play. The cauldron is the exception: its recipe
+floats over the pot and is listed from the start.
 
 | Gate | How it opens | Islands |
 |---|---|---|
-| Weight | rest the heavy weight on the big button | Pumpkin Patch, Haunted Mansion |
+| Weight | rest the heavy weight on the big button | Pumpkin Patch, Mummy Tomb, Haunted Mansion |
 | Bells | four tombstones chime a pattern; touch down on their bells in the same order | Graveyard, Haunted Mansion |
 | Scale | load the pan with carved pumpkins (1–3 pips each) to match the counterweight | Trick-or-Treat, Witch's Sky |
 | Key | carry the key to the padlock while Frankenstein stomps after the claw and swipes it loose | Frozen Crypt, Vampire Castle |
 | Cauldron | drop the recipe's ingredients in; anything else is spat back out | Witch's Brewery, Witch's Sky |
-| Laser | turn the claw to aim standing mirrors (the beam previews off a held mirror) and bounce the beam into the crystal | Mummy Tomb, Mad Scientist Lab |
+| Laser | turn the claw to aim standing mirrors (the beam previews off a held mirror) and bounce the beam into the crystal | Mad Scientist Lab |
 
 **Booster packs.** After each island you tear open a booster pack with one
 random power-up for the next island:
@@ -57,7 +58,9 @@ random power-up for the next island:
 - Clearing an island awards the next body piece, in this order: head, body,
   arms, legs, eyes, mouth, hair, extra.
 - Each piece comes from a random monster: vampire, werewolf, mummy, zombie,
-  ghost, witch, skeleton, pumpkin, cyclops or slime.
+  ghost, witch, skeleton, pumpkin, cyclops or slime. A run never repeats a
+  monster, so every Frankenstein mixes ten different creatures, and each one
+  gets its own proportions and colour tints.
 - Pieces are saved with your progress, so a resumed run keeps its monster.
 
 **Music.** Spooky Night has its own soundtrack, the "Monster Waltz": a little

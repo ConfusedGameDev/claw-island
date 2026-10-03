@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { plastic } from '../scene/Materials';
 import { boneGeometry, BONE, BONE_DARK } from '../scene/Bones';
+import { mulberry32 } from '../util/math';
 
 /**
  * Frankenstein's monster, built from ten body pieces. Every cleared Spooky
@@ -15,7 +16,8 @@ export type Slot = typeof SLOTS[number];
 export const MONSTER_IDS = ['vampire', 'werewolf', 'mummy', 'zombie', 'ghost', 'witch', 'skeleton', 'pumpkin', 'cyclops', 'slime'] as const;
 export type MonsterId = typeof MONSTER_IDS[number];
 
-export type MonsterBuild = Partial<Record<Slot, MonsterId>>;
+/** The pieces so far, plus a per-run seed that gives each monster its own proportions and tints. */
+export type MonsterBuild = Partial<Record<Slot, MonsterId>> & { seed?: number };
 
 interface MonsterStyle {
   name: string;
@@ -59,9 +61,15 @@ export function pieceLabel(slot: Slot, id: MonsterId): string {
   return `${m.name}'s ${part}`;
 }
 
-export function rollPiece(rng: () => number): MonsterId {
-  return MONSTER_IDS[Math.floor(rng() * MONSTER_IDS.length) % MONSTER_IDS.length];
+/** A random monster for the next piece, preferring ones not in `used` (a run never repeats one until all ten are in). */
+export function rollPiece(rng: () => number, used: readonly (MonsterId | undefined)[] = []): MonsterId {
+  const fresh = MONSTER_IDS.filter((id) => !used.includes(id));
+  const pool = fresh.length ? fresh : MONSTER_IDS;
+  return pool[Math.floor(rng() * pool.length) % pool.length];
 }
+
+/** A fresh seed for a new monster's look. */
+export const newMonsterSeed = (): number => (Math.floor(Math.random() * 0xffffffff) >>> 0) || 1;
 
 /** A default name: the head's first syllable plus the body's last. */
 export function monsterName(build: MonsterBuild): string {
@@ -930,8 +938,58 @@ function buildExtra(id: MonsterId): THREE.Group {
  * Face features and headwear are seated by raycasting against whichever
  * head is present, so they sit flush on lobed, squashed or stretched heads.
  */
+/** Stable per-monster tweaks (no seed: the plain sculpt). */
+interface Variation { head: number; torsoW: number; torsoH: number; arm: number[]; armTilt: number[]; leg: number[]; legSplay: number[]; tint: () => [number, number, number] }
+
+function variation(seed?: number): Variation {
+  if (!seed) return { head: 1, torsoW: 1, torsoH: 1, arm: [1, 1], armTilt: [0, 0], leg: [1, 1], legSplay: [0, 0], tint: () => [0, 0, 0] };
+  const r = mulberry32(seed);
+  const span = (a: number, b: number) => a + r() * (b - a);
+  const armLen = span(0.88, 1.15);
+  const legW = span(0.88, 1.18);
+  const tilt = span(-0.12, 0.2);
+  const splay = span(0, 0.09);
+  // A touch of asymmetry: a stitched-together monster is never quite even.
+  return {
+    head: span(0.94, 1.12),
+    torsoW: span(0.9, 1.15),
+    torsoH: span(0.95, 1.1),
+    arm: [armLen * span(0.94, 1.06), armLen * span(0.94, 1.06)],
+    armTilt: [tilt + span(-0.06, 0.06), tilt + span(-0.06, 0.06)],
+    leg: [legW, legW * span(0.95, 1.05)],
+    legSplay: [splay, splay],
+    tint: () => [span(-0.03, 0.03), span(-0.08, 0.08), span(-0.05, 0.05)],
+  };
+}
+
+/** Give each material of the figure its own slight colour shift (shared materials stay matched). */
+function tintFigure(root: THREE.Object3D, v: Variation): void {
+  const swapped = new Map<THREE.Material, THREE.Material>();
+  const hsl = { h: 0, s: 0, l: 0 };
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || !(o.material instanceof THREE.MeshStandardMaterial)) return;
+    const m = o.material;
+    let next = swapped.get(m);
+    if (!next) {
+      m.color.getHSL(hsl);
+      // Leave ink, glossy black and see-through stand-ins alone.
+      if (hsl.l < 0.18 || (m.transparent && m.opacity < 0.5)) next = m;
+      else {
+        const c = m.clone();
+        const [dh, ds, dl] = v.tint();
+        c.color.offsetHSL(dh, ds, dl);
+        c.userData.owned = true;
+        next = c;
+      }
+      swapped.set(m, next);
+    }
+    o.material = next;
+  });
+}
+
 export function buildMonster(build: MonsterBuild, placeholders = true): THREE.Group {
   const root = new THREE.Group();
+  const v = variation(build.seed);
   const ph = ghostly();
   const placeholder = (geo: THREE.BufferGeometry, x: number, y: number, z = 0, rz = 0, isSurface = false) => {
     if (!placeholders && !isSurface) return;
@@ -943,19 +1001,40 @@ export function buildMonster(build: MonsterBuild, placeholders = true): THREE.Gr
       m.visible = placeholders;
     }
   };
-  if (build.head) root.add(buildHead(build.head));
+  if (build.head) {
+    const head = buildHead(build.head);
+    head.scale.setScalar(v.head);
+    root.add(head);
+  }
   // Without a head the features still need something to sit on.
   else placeholder(new THREE.SphereGeometry(HEAD_R, 24, 16), HEAD.x, HEAD.y, 0, 0, true);
-  if (build.torso) root.add(buildTorso(build.torso));
+  if (build.torso) {
+    const t = buildTorso(build.torso);
+    t.scale.set(v.torsoW, v.torsoH, v.torsoW);
+    root.add(t);
+  }
   else placeholder(new THREE.CapsuleGeometry(0.3, 0.22, 6, 12), 0, TORSO_Y);
   ([['leftArm', -1], ['rightArm', 1]] as const).forEach(([slot, side]) => {
     const id = build[slot];
-    if (id) root.add(buildArm(id, side));
+    if (id) {
+      const k = side < 0 ? 0 : 1;
+      const arm = buildArm(id, side);
+      arm.position.x *= v.torsoW;
+      arm.scale.setScalar(v.arm[k]);
+      arm.rotation.z += side * v.armTilt[k];
+      root.add(arm);
+    }
     else placeholder(new THREE.CapsuleGeometry(0.085, 0.34, 4, 8), side * (SHOULDER + 0.1), TORSO_Y + 0.05, 0, side * 0.42);
   });
   ([['leftLeg', -1], ['rightLeg', 1]] as const).forEach(([slot, side]) => {
     const id = build[slot];
-    if (id) root.add(buildLeg(id, side));
+    if (id) {
+      const k = side < 0 ? 0 : 1;
+      const leg = buildLeg(id, side);
+      leg.scale.set(v.leg[k], 1, v.leg[k]);
+      leg.rotation.z = side * v.legSplay[k];
+      root.add(leg);
+    }
     else placeholder(new THREE.CapsuleGeometry(0.1, 0.26, 4, 8), side * HIP, 0.29);
   });
 
@@ -978,10 +1057,11 @@ export function buildMonster(build: MonsterBuild, placeholders = true): THREE.Gr
   }
   if (build.torso) {
     for (const sx of [-1, 1]) {
-      if (build[sx < 0 ? 'leftArm' : 'rightArm']) seam(root, 0.095, 'x', new THREE.Vector3(sx * (SHOULDER - 0.01), TORSO_Y + 0.22, 0));
+      if (build[sx < 0 ? 'leftArm' : 'rightArm']) seam(root, 0.095, 'x', new THREE.Vector3(sx * (SHOULDER - 0.01) * v.torsoW, TORSO_Y + 0.22, 0));
       if (build[sx < 0 ? 'leftLeg' : 'rightLeg']) seam(root, 0.105, 'y', new THREE.Vector3(sx * HIP, 0.43, 0));
     }
   }
+  if (build.seed) tintFigure(root, v);
   return root;
 }
 
@@ -1043,6 +1123,7 @@ export function disposeFigure(figure: THREE.Object3D): void {
     if (!o.geometry.userData.shared) o.geometry.dispose();
     const mat = o.material as THREE.MeshStandardMaterial;
     if (mat.map) { mat.map.dispose(); mat.dispose(); }
+    else if (mat.userData.owned) mat.dispose();
   });
 }
 

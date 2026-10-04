@@ -93,9 +93,35 @@ export function resolveCampaign(): Campaign {
   return CAMPAIGNS[DEFAULT_CAMPAIGN];
 }
 
+const SKIP_TITLE_KEY = 'clawisland.skipTitle';
+
+/** True once after a mode switch reload: open straight on the campaign card. */
+export function consumeSkipTitle(): boolean {
+  try {
+    const v = sessionStorage.getItem(SKIP_TITLE_KEY) === '1';
+    sessionStorage.removeItem(SKIP_TITLE_KEY);
+    return v;
+  } catch { return false; }
+}
+
+/** Saved progress of a campaign, for the mode select screen. */
+export function campaignProgress(id: CampaignId): { island: number; pieces: number } {
+  const c = CAMPAIGNS[id];
+  try {
+    const island = Number(localStorage.getItem(c.progressKey) ?? 0) || 0;
+    let pieces = 0;
+    if (c.rewardsPieces) {
+      const raw = JSON.parse(localStorage.getItem(c.progressKey + '.monster') ?? '{}') as Record<string, unknown>;
+      pieces = Object.keys(raw).filter((k) => k !== 'seed' && raw[k]).length;
+    }
+    return { island, pieces };
+  } catch { return { island: 0, pieces: 0 }; }
+}
+
 /** Remember the choice and reload into it (every island is built up front). */
-export function switchCampaign(id: CampaignId): void {
+export function switchCampaign(id: CampaignId, skipTitle = false): void {
   try { localStorage.setItem(CAMPAIGN_KEY, id); } catch { /* ignore */ }
+  if (skipTitle) try { sessionStorage.setItem(SKIP_TITLE_KEY, '1'); } catch { /* ignore */ }
   const url = new URL(location.href);
   url.searchParams.set('campaign', id);
   url.searchParams.delete('seed');

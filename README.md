@@ -109,6 +109,25 @@ the Meadow, steel drums on the Beach, chiptune in the Future Lab...).
 The pause menu of each campaign has a button that jumps to the other one
 (Play Spooky Night / Play Classic islands); each keeps its own progress.
 
+## Title screen and website
+
+The game opens on a title screen (tap to start), then a mode select with one
+card per campaign showing its saved progress. Picking the other campaign
+reloads straight onto its card. Esc or Back on the card returns to the modes.
+
+The Vercel site also serves a few static pages from `public/`, which Vite
+copies into the build untouched:
+
+| Page | What it is |
+|---|---|
+| `/about/` | landing page: pitch, features, screenshots |
+| `/support/` | how to play, FAQ, contact |
+| `/privacy/` | privacy policy (the stores ask for this URL) |
+| `/press/` | press kit: fact sheet, descriptions, logo and screenshots |
+
+They share `public/site/site.css`, the Fredoka fonts and the screenshots in
+`public/site/img/`. The title screen links to Support and Privacy.
+
 ## How to play
 
 Ten islands float in a line. Clear one and the crane's rails extend across the

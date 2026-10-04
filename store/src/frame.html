@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  @font-face { font-family: 'Fredoka'; font-weight: 700; src: url('../../public/site/fonts/fredoka-latin-700-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Fredoka'; font-weight: 600; src: url('../../public/site/fonts/fredoka-latin-600-normal.woff2') format('woff2'); }
+  html, body { margin: 0; overflow: hidden; }
+  body { font-family: 'Fredoka', sans-serif; }
+  .frame {
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  /* Soft stars and a moon glow, so every frame belongs to the same night. */
+  .frame::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(circle at 85% 8%, rgba(255, 241, 220, 0.35), transparent 22%),
+      radial-gradient(3px 3px at 12% 14%, #fff9 50%, transparent 51%),
+      radial-gradient(3px 3px at 30% 6%, #fff7 50%, transparent 51%),
+      radial-gradient(2px 2px at 64% 12%, #fff8 50%, transparent 51%),
+      radial-gradient(3px 3px at 8% 40%, #fff6 50%, transparent 51%),
+      radial-gradient(2px 2px at 92% 46%, #fff6 50%, transparent 51%);
+  }
+  .headline {
+    position: relative; z-index: 1;
+    text-align: center; font-weight: 700; line-height: 1.04;
+    color: #fff7e6;
+    -webkit-text-stroke: var(--stroke) #2a2230; paint-order: stroke fill;
+    text-shadow: 0 var(--shadow) 0 #2a2230;
+  }
+  .headline em { font-style: normal; color: var(--accent); }
+  .device {
+    position: relative; z-index: 1;
+    background: #2a2230; border: var(--bezel) solid #2a2230;
+    border-radius: var(--radius); overflow: hidden;
+    box-shadow: 0 var(--lift) 0 rgba(42, 34, 48, 0.55), 0 calc(var(--lift) * 2) calc(var(--lift) * 4) rgba(0, 0, 0, 0.35);
+  }
+  .device img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+</style>
+</head>
+<body>
+<div class="frame" id="frame">
+  <div class="headline" id="headline"></div>
+  <div class="device" id="device"><img id="shot" /></div>
+</div>
+<script>
+  /**
+   * Lays out one captioned store screenshot at exactly W x H:
+   * headline at the top, the game capture in a device frame below.
+   */
+  window.layout = ({ W, H, headline, shot, aspect, bg, accent }) => new Promise((resolve) => {
+    const f = document.getElementById('frame');
+    f.style.width = `${W}px`;
+    f.style.height = `${H}px`;
+    f.style.background = bg;
+    const unit = Math.min(W, H * 0.62);
+    const fs = Math.round(unit * 0.074);
+    const head = document.getElementById('headline');
+    head.innerHTML = headline;
+    head.style.fontSize = `${fs}px`;
+    head.style.margin = `${Math.round(H * 0.045)}px ${Math.round(W * 0.07)}px ${Math.round(H * 0.03)}px`;
+    f.style.setProperty('--stroke', `${Math.max(4, Math.round(fs * 0.12))}px`);
+    f.style.setProperty('--shadow', `${Math.max(4, Math.round(fs * 0.09))}px`);
+    f.style.setProperty('--accent', accent);
+    const dev = document.getElementById('device');
+    const bezel = Math.round(unit * 0.018);
+    dev.style.setProperty('--bezel', `${bezel}px`);
+    dev.style.setProperty('--radius', `${Math.round(unit * 0.07)}px`);
+    dev.style.setProperty('--lift', `${Math.round(unit * 0.012)}px`);
+    const img = document.getElementById('shot');
+    img.onload = () => {
+      requestAnimationFrame(() => {
+        // Fit the whole device under the headline, controls included.
+        const top = head.offsetTop + head.offsetHeight + Math.round(H * 0.03);
+        const availH = H - top - Math.round(H * 0.035);
+        let w = Math.min(W * 0.84, availH * aspect);
+        dev.style.width = `${Math.round(w)}px`;
+        dev.style.height = `${Math.round(w / aspect)}px`;
+        document.fonts.ready.then(() => requestAnimationFrame(() => resolve()));
+      });
+    };
+    img.src = shot;
+  });
+</script>
+</body>
+</html>

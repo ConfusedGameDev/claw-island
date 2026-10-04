@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; background: transparent; }
+  svg { display: block; width: 1024px; height: 1024px; }
+</style>
+</head>
+<body>
+<!--
+  Claw Island app icon: the bone claw holding a jack-o'-lantern over a little
+  floating island at night. ?layer=fg|bg renders only the Android adaptive
+  foreground (claw + pumpkin) or background (sky + island).
+-->
+<svg id="icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="sky" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#6a45a0" />
+      <stop offset="0.55" stop-color="#3a2160" />
+      <stop offset="1" stop-color="#1d1030" />
+    </radialGradient>
+    <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fff1dc" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#fff1dc" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="pumpkinGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ffcf4a" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#ff8a3c" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="pumpkin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffa24f" />
+      <stop offset="1" stop-color="#e8641e" />
+    </linearGradient>
+    <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a58ad6" />
+      <stop offset="1" stop-color="#7a5cb0" />
+    </linearGradient>
+  </defs>
+
+  <g id="bg">
+    <rect width="1024" height="1024" fill="url(#sky)" />
+    <!-- moon -->
+    <circle cx="790" cy="230" r="230" fill="url(#moonGlow)" />
+    <circle cx="790" cy="230" r="118" fill="#fff1dc" />
+    <circle cx="752" cy="205" r="20" fill="#f1dfc2" />
+    <circle cx="820" cy="270" r="14" fill="#f1dfc2" />
+    <circle cx="815" cy="190" r="9" fill="#f1dfc2" />
+    <!-- stars -->
+    <g fill="#fff7e6">
+      <path d="M190 210l9 22 22 9-22 9-9 22-9-22-22-9 22-9z" />
+      <path d="M300 120l6 14 14 6-14 6-6 14-6-14-14-6 14-6z" opacity="0.8" />
+      <path d="M150 420l5 12 12 5-12 5-5 12-5-12-12-5 12-5z" opacity="0.7" />
+      <path d="M880 470l6 14 14 6-14 6-6 14-6-14-14-6 14-6z" opacity="0.75" />
+    </g>
+    <!-- bats -->
+    <g fill="#1d1030">
+      <path d="M248 318c-14-18-36-22-56-12 12 5 13 15 12 22 7-6 18-6 24 4 6-8 14-9 20-4 6-10 17-10 24-4-1-7 0-17 12-22-20-10-42-6-56 12z" />
+      <path d="M842 612c-10-13-26-16-40-9 9 4 9 11 9 16 5-4 13-4 17 3 4-6 10-6 14-3 4-7 12-7 17-3 0-5 0-12 9-16-14-7-30-4-40 9z" opacity="0.8" />
+    </g>
+    <!-- floating island -->
+    <path d="M150 870c40-60 680-60 724 0l-60 92c-50 44-554 44-604 0z" fill="#5a3f6e" stroke="#2a2230" stroke-width="14" stroke-linejoin="round" />
+    <ellipse cx="512" cy="862" rx="372" ry="76" fill="url(#grass)" stroke="#2a2230" stroke-width="14" />
+    <g fill="#c9b3ee">
+      <ellipse cx="330" cy="850" rx="16" ry="7" />
+      <ellipse cx="690" cy="872" rx="14" ry="6" />
+      <ellipse cx="560" cy="890" rx="12" ry="5" />
+    </g>
+    <!-- tiny tombstones on the island -->
+    <g stroke="#2a2230" stroke-width="10" stroke-linejoin="round">
+      <path d="M248 868v-58a26 26 0 0 1 52 0v58z" fill="#b3add0" />
+      <path d="M732 878v-46a22 22 0 0 1 44 0v46z" fill="#b3add0" />
+    </g>
+  </g>
+
+  <g id="fg">
+    <!-- soft glow behind the pumpkin -->
+    <circle cx="512" cy="640" r="250" fill="url(#pumpkinGlow)" />
+    <!-- spine cable: vertebra beads from the top -->
+    <g fill="#fff1dc" stroke="#2a2230" stroke-width="10">
+      <rect x="490" y="150" width="44" height="34" rx="14" />
+      <rect x="490" y="196" width="44" height="34" rx="14" />
+      <rect x="490" y="242" width="44" height="34" rx="14" />
+    </g>
+    <!-- skull carriage -->
+    <g stroke="#2a2230" stroke-width="12" stroke-linejoin="round">
+      <path d="M512 270c-74 0-122 46-122 106 0 38 18 64 46 80v38h152v-38c28-16 46-42 46-80 0-60-48-106-122-106z" fill="#fff1dc" />
+    </g>
+    <ellipse cx="468" cy="380" rx="28" ry="32" fill="#2a2230" />
+    <ellipse cx="556" cy="380" rx="28" ry="32" fill="#2a2230" />
+    <circle cx="476" cy="372" r="7" fill="#c9a8ff" />
+    <circle cx="564" cy="372" r="7" fill="#c9a8ff" />
+    <path d="M512 420l-14 22h28z" fill="#2a2230" />
+    <path d="M468 494v-22M496 494v-22M528 494v-22M556 494v-22" stroke="#2a2230" stroke-width="9" stroke-linecap="round" />
+    <!-- little bow on the skull, as in the game -->
+    <g stroke="#2a2230" stroke-width="8" stroke-linejoin="round">
+      <path d="M560 290l40-22v44zM560 290l-40-22v44z" fill="#ff7fb0" />
+      <circle cx="560" cy="290" r="11" fill="#ff7fb0" />
+    </g>
+
+    <!-- back finger -->
+    <path d="M512 500v150" stroke="#2a2230" stroke-width="42" stroke-linecap="round" />
+    <path d="M512 500v150" stroke="#fff1dc" stroke-width="22" stroke-linecap="round" />
+
+    <!-- pumpkin -->
+    <g stroke="#2a2230" stroke-width="12" stroke-linejoin="round">
+      <path d="M512 548c-14-34 4-58 30-62" fill="none" stroke="#3f7a3a" stroke-width="18" stroke-linecap="round" />
+      <ellipse cx="430" cy="660" rx="96" ry="104" fill="url(#pumpkin)" />
+      <ellipse cx="594" cy="660" rx="96" ry="104" fill="url(#pumpkin)" />
+      <ellipse cx="512" cy="660" rx="88" ry="112" fill="url(#pumpkin)" />
+    </g>
+    <!-- carved face, glowing -->
+    <g fill="#ffe27a" stroke="#7a2e0e" stroke-width="6" stroke-linejoin="round">
+      <path d="M440 620l34-34 30 40z" />
+      <path d="M584 620l-34-34-30 40z" />
+      <path d="M430 674c36 30 128 30 164 0-4 50-44 72-82 72s-78-22-82-72z" />
+    </g>
+
+    <!-- teeth left in the grin -->
+    <g fill="#f07a2c" stroke="#7a2e0e" stroke-width="5">
+      <rect x="474" y="690" width="22" height="20" rx="4" />
+      <rect x="530" y="690" width="22" height="20" rx="4" />
+    </g>
+    <!-- front fingers (phalanx bones) hugging the pumpkin -->
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M452 484c-80 40-140 120-128 216l34 52" stroke="#2a2230" stroke-width="48" />
+      <path d="M452 484c-80 40-140 120-128 216l34 52" stroke="#fff1dc" stroke-width="26" />
+      <path d="M572 484c80 40 140 120 128 216l-34 52" stroke="#2a2230" stroke-width="48" />
+      <path d="M572 484c80 40 140 120 128 216l-34 52" stroke="#fff1dc" stroke-width="26" />
+    </g>
+    <!-- knuckle joints -->
+    <g fill="#fff1dc" stroke="#2a2230" stroke-width="10">
+      <circle cx="452" cy="486" r="22" />
+      <circle cx="572" cy="486" r="22" />
+      <circle cx="330" cy="660" r="20" />
+      <circle cx="694" cy="660" r="20" />
+      <circle cx="358" cy="752" r="18" />
+      <circle cx="666" cy="752" r="18" />
+    </g>
+  </g>
+</svg>
+<script>
+  const layer = new URLSearchParams(location.search).get('layer');
+  if (layer === 'fg') document.getElementById('bg').remove();
+  if (layer === 'bg') document.getElementById('fg').remove();
+</script>
+</body>
+</html>

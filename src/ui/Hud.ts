@@ -4,7 +4,6 @@ import type { LevelDef } from '../game/Levels';
 import { PERFECT_ATTEMPTS } from '../game/Scoring';
 import { formatTime } from '../util/math';
 import type { Campaign, CampaignId } from '../game/Campaign';
-import { CAMPAIGNS } from '../game/Campaign';
 import { ICONS, withIcon, type IconName } from './Icons';
 import { facebookShareUrl, openExternal, xShareUrl, type PartChip, type PreparedCard, type ShareOutcome } from './Share';
 
@@ -322,26 +321,119 @@ export class Hud {
   }
 
   hideOverlay(): void {
+    this.setMenuKeys(null);
     this.overlay.classList.add('hidden');
     this.overlay.innerHTML = '';
+    this.setFront(false);
+  }
+
+  /** Title and mode select hide the in-game HUD and controls. */
+  private setFront(on: boolean): void {
+    this.overlay.classList.toggle('front', on);
+    document.body.classList.toggle('at-front', on);
+  }
+
+  /** Keyboard handler for the current front-door screen (replaced or removed with it). */
+  private menuKeys: ((e: KeyboardEvent) => void) | null = null;
+  private setMenuKeys(fn: ((e: KeyboardEvent) => void) | null): void {
+    if (this.menuKeys) window.removeEventListener('keydown', this.menuKeys);
+    this.menuKeys = fn;
+    if (fn) window.addEventListener('keydown', fn);
+  }
+
+  /** The title screen: logo and "tap to start". */
+  showTitle(opts: { onStart: () => void; links: { label: string; href: string }[] }): void {
+    this.setMenuKeys(null);
+    this.overlay.classList.remove('hidden');
+    this.setFront(true);
+    this.overlay.innerHTML = '';
+    const screen = el('div', 'title-screen');
+    screen.innerHTML = `
+      <div class="logo">
+        <div class="logo-claw">${ICONS.claw}</div>
+        <div class="logo-text"><span>Claw</span><span>Island</span></div>
+      </div>
+      <div class="tap-start"><span class="touch-only">Tap to start</span><span class="kbd-only">Press any key</span></div>`;
+    if (opts.links.length) {
+      const links = el('div', 'title-links');
+      opts.links.forEach((l, i) => {
+        if (i) links.append(el('span', '', '·'));
+        const a = el('a', '', l.label);
+        a.href = l.href;
+        a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openExternal(l.href); });
+        a.addEventListener('pointerdown', (e) => e.stopPropagation());
+        links.append(a);
+      });
+      screen.append(links);
+    }
+    screen.addEventListener('click', () => opts.onStart());
+    this.overlay.append(screen);
+    this.setMenuKeys((e) => {
+      if (e.repeat || e.target instanceof HTMLInputElement) return;
+      opts.onStart();
+    });
+  }
+
+  /** Mode select: one big card per campaign, with its saved progress. */
+  showModes(opts: {
+    current: CampaignId;
+    modes: { campaign: Campaign; progress: { island: number; pieces: number } }[];
+    onPick: (id: CampaignId) => void;
+  }): void {
+    this.setMenuKeys(null);
+    this.overlay.classList.remove('hidden');
+    this.setFront(true);
+    this.overlay.innerHTML = '';
+    const wrap = el('div', 'mode-screen');
+    wrap.append(el('div', 'mode-title', 'Choose your island'));
+    const row = el('div', 'mode-cards');
+    const blurb: Record<string, string> = {
+      halloween: 'Ten haunted islands. Win a body part on each one and build your own Frankenstein.',
+      classic: 'The original ten islands: cuccos, crabs, candy, ice and clouds.',
+    };
+    const cards: HTMLButtonElement[] = [];
+    let sel = Math.max(0, opts.modes.findIndex((m) => m.campaign.id === opts.current));
+    const mark = () => cards.forEach((c, i) => c.classList.toggle('sel', i === sel));
+    opts.modes.forEach(({ campaign: c, progress: p }, i) => {
+      const status = p.island > 0
+        ? `Island ${p.island + 1}${c.rewardsPieces ? ` · ${p.pieces}/10 pieces` : ''}`
+        : 'New game';
+      const card = el('button', `mode-card mode-${c.id}`, `
+        <span class="mode-icon">${ICONS[c.tabIcon as IconName]}</span>
+        <span class="mode-name">${c.tab}</span>
+        <span class="mode-blurb">${blurb[c.id] ?? c.subtitle}</span>
+        <span class="mode-status">${status}</span>`);
+      card.addEventListener('click', (e) => { e.stopPropagation(); opts.onPick(c.id); });
+      card.addEventListener('pointerenter', () => { sel = i; mark(); });
+      cards.push(card);
+      row.append(card);
+    });
+    mark();
+    wrap.append(row);
+    wrap.append(hint('← → choose · Enter play', ''));
+    this.overlay.append(wrap);
+    this.setMenuKeys((e) => {
+      if (e.repeat || e.target instanceof HTMLInputElement) return;
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'Digit1') { sel = 0; mark(); }
+      if (e.code === 'ArrowRight' || e.code === 'KeyD' || e.code === 'Digit2') { sel = Math.min(cards.length - 1, 1); mark(); }
+      if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); opts.onPick(opts.modes[sel].campaign.id); }
+    });
   }
 
   showIntro(
     campaign: Campaign, onStart: () => void, resume?: { level: LevelDef; onResume: () => void; pieces?: number },
-    onSwitch?: (id: CampaignId) => void,
+    onBack?: () => void,
   ): void {
+    this.setMenuKeys(null);
     this.overlay.classList.remove('hidden');
+    this.setFront(false);
     this.overlay.innerHTML = '';
     const card = el('div', 'panel intro');
     const spooky = campaign.rewardsPieces;
-    if (onSwitch) {
-      const tabs = el('div', 'campaign-tabs');
-      for (const c of Object.values(CAMPAIGNS)) {
-        const t = el('button', `campaign-tab ${c.id === campaign.id ? 'on' : ''}`, withIcon(c.tabIcon as IconName, c.tab));
-        t.addEventListener('click', (e) => { e.stopPropagation(); if (c.id !== campaign.id) onSwitch(c.id); });
-        tabs.append(t);
-      }
-      card.append(tabs);
+    if (onBack) {
+      const back = el('button', 'back-btn', '← Back');
+      back.addEventListener('click', (e) => { e.stopPropagation(); onBack(); });
+      card.append(back);
     }
     const body = el('div');
     body.innerHTML = `
@@ -375,7 +467,7 @@ export class Hud {
       btns.append(r);
     }
     card.append(btns);
-    card.append(hint(resume ? 'press any key for a new game' : 'press any key or tap to start', resume ? 'tap a button to play' : 'tap Start to play'));
+    card.append(hint(resume ? 'any key · new game · Esc back' : 'any key to start · Esc back', resume ? 'tap a button to play' : 'tap Start to play'));
     this.overlay.append(card);
   }
 

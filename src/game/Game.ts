@@ -26,7 +26,7 @@ import { computeScore, type RunStats, type ScoreBreakdown } from './Scoring';
 import { LAYOUT } from './Layout';
 import { gateZones, levelGates, type LevelDef } from './Levels';
 import { createGate, type Gate, type GateEnv, type GoalCard } from './Gates';
-import { CAMPAIGNS, DEBUG_TOOLS, type Campaign, type CampaignId, gameUrl, switchCampaign } from './Campaign';
+import { CAMPAIGNS, DEBUG_TOOLS, type Campaign, type CampaignId, campaignProgress, consumeSkipTitle, gameUrl, switchCampaign } from './Campaign';
 import { MONSTERS, MonsterPortrait, SLOTS, monsterName, newMonsterSeed, pieceLabel, rollPiece, swatchCss, type MonsterBuild, type Slot } from './Monster';
 import { composeCard, prepareCard, saveCard, shareCard, type PartChip } from '../ui/Share';
 import { damp, easeInOutSine, easeOutCubic, lerp, mulberry32, shuffle, windValue } from '../util/math';
@@ -243,6 +243,7 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return;
       if (e.code === 'Escape') {
+        if (this.phase === 'INTRO') { if (this.menu === 'card') this.showModes(); return; }
         if (this.paused) this.resume();
         else this.pause();
       }
@@ -251,7 +252,7 @@ export class Game {
     });
 
     const urlSeed = new URLSearchParams(location.search).get('seed');
-    this.reset(urlSeed ? Number(urlSeed) >>> 0 : undefined);
+    this.reset(urlSeed ? Number(urlSeed) >>> 0 : undefined, consumeSkipTitle() ? 'card' : 'title');
   }
 
   get levelDefs(): LevelDef[] {
@@ -263,14 +264,57 @@ export class Game {
   }
 
   // ------------------------------------------------------------- lifecycle
-  /** New run from level 1 (shows the intro, with a resume option if any). */
-  reset(seed?: number): void {
+  /** Which front-door screen is up while in INTRO: title, mode select, or the campaign card. */
+  private menu: 'title' | 'modes' | 'card' = 'title';
+  private menuAt = 0;
+
+  /** New run from level 1, starting at the title, mode select or the campaign card. */
+  reset(seed?: number, start: 'title' | 'modes' | 'card' = 'modes'): void {
     this.music?.playTitle();
     this.music?.duck(0);
     this.prepare(0, seed);
     this.setPhase('INTRO');
-    const saved = this.loadProgress();
     this.pieces = this.loadPieces();
+    if (start === 'title') this.showTitle();
+    else if (start === 'modes') this.showModes();
+    else this.showCard();
+  }
+
+  private setMenu(m: 'title' | 'modes' | 'card'): void {
+    this.menu = m;
+    this.menuAt = performance.now();
+    this.input.consumeAny();
+    this.input.consumeDrop();
+  }
+
+  /** The title: logo and "tap to start" (the tap also wakes the audio). */
+  private showTitle(): void {
+    this.setMenu('title');
+    const site = gameUrl();
+    this.hud.showTitle({
+      onStart: () => { if (this.menu === 'title') this.showModes(); },
+      links: site ? [{ label: 'Support', href: `${site}support/` }, { label: 'Privacy', href: `${site}privacy/` }] : [],
+    });
+  }
+
+  /** Pick Spooky Night or Classic; the other campaign reloads the game into it. */
+  private showModes(): void {
+    this.setMenu('modes');
+    this.hud.showModes({
+      current: this.campaign.id,
+      modes: Object.values(CAMPAIGNS).map((c) => ({ campaign: c, progress: campaignProgress(c.id) })),
+      onPick: (id: CampaignId) => {
+        if (this.menu !== 'modes') return;
+        if (id === this.campaign.id) this.showCard();
+        else switchCampaign(id, true);
+      },
+    });
+  }
+
+  /** The campaign card: how to play, New game / Continue. */
+  private showCard(): void {
+    this.setMenu('card');
+    const saved = this.loadProgress();
     this.hud.showIntro(
       this.campaign,
       () => this.startRun(),
@@ -279,7 +323,7 @@ export class Game {
         pieces: SLOTS.filter((s) => this.pieces[s]).length,
         onResume: () => { this.prepare(saved, this.seed); this.startRun(); },
       } : undefined,
-      (id: CampaignId) => switchCampaign(id),
+      () => this.showModes(),
     );
   }
 
@@ -688,7 +732,7 @@ export class Game {
       onShare: (card) => shareCard(card, url),
       onSave: (card) => saveCard(card),
       social: { text: (name) => `Meet ${name}, the Frankenstein I built in Claw Island: Spooky Night! 🎃`, url },
-    }, () => this.reset(), () => this.sfx.star());
+    }, () => this.reset(undefined, 'modes'), () => this.sfx.star());
   }
 
 
@@ -822,7 +866,7 @@ export class Game {
       this.showMonsterFinal(total, stars, best);
       return;
     }
-    this.hud.showFinal(this.results, total, stars, best, () => this.reset(), () => this.sfx.star());
+    this.hud.showFinal(this.results, total, stars, best, () => this.reset(undefined, 'modes'), () => this.sfx.star());
   }
 
   // ---------------------------------------------------------------- travel
@@ -997,9 +1041,11 @@ export class Game {
     this.time += dt;
     this.hud.setPauseVisible(this.canPause());
 
-    if (this.phase === 'INTRO' && this.input.consumeAny()) this.startRun();
+    // Front door: the title and mode select handle their own taps and keys; on the
+    // campaign card any key starts (after a beat, so the key that opened it doesn't).
+    if (this.phase === 'INTRO' && this.input.consumeAny() && this.menu === 'card' && performance.now() - this.menuAt > 300) this.startRun();
     if (this.phase === 'RESULTS' && this.input.consumeDrop() && !this.hud.advanceBooster()) this.continueFromResults();
-    if (this.phase === 'FINAL' && this.input.consumeDrop()) this.reset();
+    if (this.phase === 'FINAL' && this.input.consumeDrop()) this.reset(undefined, 'modes');
 
     const playing = this.phase === 'PHASE_WEIGHT' || this.phase === 'HOLE_OPENING' || this.phase === 'PHASE_COLLECT';
     if (playing && !this.timerRunning && this.input.moving) this.timerRunning = true;
